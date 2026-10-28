@@ -19,4 +19,5 @@ it("clears selected details when search changes and shows no matches", async () 
 	await user.type(screen.getByRole("textbox", { name: "Search memory" }), "missing");
 	await waitFor(() => expect(screen.queryByText("Private detail")).not.toBeInTheDocument());
 	expect(await screen.findByText("No memory matches these filters.")).toBeInTheDocument();
+	expect(screen.getByText("0 nodes · main")).toBeInTheDocument();
 });
