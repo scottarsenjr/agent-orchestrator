@@ -110,28 +110,37 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 }
 
 func (c *MemoryController) graph(w http.ResponseWriter, r *http.Request) {
-	bad := func(status int, msg string) {
-		envelope.WriteAPIError(w, r, status, "bad_request", "MEMORY_UNAVAILABLE", msg, nil)
+	writeError := func(status int, msg string) {
+		kind := "bad_request"
+		switch status {
+		case http.StatusNotFound:
+			kind = "not_found"
+		case http.StatusBadGateway:
+			kind = "bad_gateway"
+		case http.StatusServiceUnavailable:
+			kind = "unavailable"
+		}
+		envelope.WriteAPIError(w, r, status, kind, "MEMORY_UNAVAILABLE", msg, nil)
 	}
 	q := r.URL.Query()
 	projectID := q.Get("projectId")
 	scope := q.Get("scope")
 	sessionID := q.Get("sessionId")
 	if projectID == "" || (scope != "project" && scope != "worktree" && scope != "session") || (scope == "project" && sessionID != "") || (scope != "project" && sessionID == "") {
-		bad(400, "Select a project and a valid scope.")
+		writeError(400, "Select a project and a valid scope.")
 		return
 	}
 	if c.Projects == nil || c.Sessions == nil || c.Python == "" || !filepath.IsAbs(c.Python) {
-		bad(503, "Memory is not configured.")
+		writeError(503, "Memory is not configured.")
 		return
 	}
 	workspace, err := c.resolveWorkspace(r.Context(), projectID, scope, sessionID)
 	if err != nil {
-		bad(404, "Project or session workspace is unavailable.")
+		writeError(404, "Project or session workspace is unavailable.")
 		return
 	}
 	if !filepath.IsAbs(workspace) {
-		bad(503, "Workspace is unavailable.")
+		writeError(503, "Workspace is unavailable.")
 		return
 	}
 	args := []string{"-X", "utf8", "-I", "-m", "jarvis_core.cli", "memory", "graph", "--workspace", workspace, "--json", "--limit", "200"}
@@ -142,7 +151,7 @@ func (c *MemoryController) graph(w http.ResponseWriter, r *http.Request) {
 		if v := q.Get(entry.key); v != "" {
 			for _, s := range strings.Split(v, ",") {
 				if !entry.allowed[s] {
-					bad(400, "Invalid memory filter.")
+					writeError(400, "Invalid memory filter.")
 					return
 				}
 			}
@@ -151,7 +160,7 @@ func (c *MemoryController) graph(w http.ResponseWriter, r *http.Request) {
 	}
 	if text := q.Get("query"); text != "" {
 		if len(text) > 512 {
-			bad(400, "Search is too long.")
+			writeError(400, "Search is too long.")
 			return
 		}
 		args = append(args, "--query", text)
@@ -159,7 +168,7 @@ func (c *MemoryController) graph(w http.ResponseWriter, r *http.Request) {
 	if q.Get("metadataOnly") != "" {
 		value, err := strconv.ParseBool(q.Get("metadataOnly"))
 		if err != nil {
-			bad(400, "Invalid metadata flag.")
+			writeError(400, "Invalid metadata flag.")
 			return
 		}
 		if value {
@@ -177,12 +186,12 @@ func (c *MemoryController) graph(w http.ResponseWriter, r *http.Request) {
 	var out boundedBuffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {
-		bad(503, "Memory provider is unavailable.")
+		writeError(503, "Memory provider is unavailable.")
 		return
 	}
 	var graph MemoryGraph
 	if json.Unmarshal(out.Bytes(), &graph) != nil || graph.SchemaVersion != 1 || graph.VisibilityToken == "" {
-		bad(502, "Memory provider returned an invalid response.")
+		writeError(502, "Memory provider returned an invalid response.")
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

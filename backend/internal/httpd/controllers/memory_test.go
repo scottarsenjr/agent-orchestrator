@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http/httptest"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/envelope"
 	projectsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/project"
 	sessionsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/session"
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite/sqlitetest"
@@ -39,14 +41,16 @@ func TestMemoryRejectsWrongScopeAndInvalidFilters(t *testing.T) {
 	root := t.TempDir()
 	c := MemoryController{Projects: memoryProjects{path: root}, Sessions: memorySessions{project: "other", path: root}, Python: filepath.Join(root, "missing.exe")}
 	for _, target := range []struct {
-		query string
-		want  int
+		query    string
+		want     int
+		wantKind string
 	}{
-		{"?projectId=p&scope=session&sessionId=s", 404},
-		{"?projectId=p&scope=project&sessionId=s", 400},
-		{"?projectId=p&scope=project&nodeTypes=source,invalid", 400},
-		{"?projectId=p&scope=project&statuses=accepted,invalid", 400},
-		{"?projectId=p&scope=project&metadataOnly=maybe", 400},
+		{"?projectId=p&scope=session&sessionId=s", 404, "not_found"},
+		{"?projectId=p&scope=project&sessionId=s", 400, "bad_request"},
+		{"?projectId=p&scope=project&nodeTypes=source,invalid", 400, "bad_request"},
+		{"?projectId=p&scope=project&statuses=accepted,invalid", 400, "bad_request"},
+		{"?projectId=p&scope=project&metadataOnly=maybe", 400, "bad_request"},
+		{"?projectId=p&scope=project", 503, "unavailable"},
 	} {
 		t.Run(target.query, func(t *testing.T) {
 			w := httptest.NewRecorder()
@@ -54,7 +58,31 @@ func TestMemoryRejectsWrongScopeAndInvalidFilters(t *testing.T) {
 			if w.Code != target.want {
 				t.Fatalf("got %d, want %d", w.Code, target.want)
 			}
+			var got envelope.APIError
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+				t.Fatalf("invalid error envelope: %v", err)
+			}
+			if got.Error != target.wantKind || got.Code != "MEMORY_UNAVAILABLE" || got.Message == "" {
+				t.Fatalf("error envelope = %+v, want kind %q and MEMORY_UNAVAILABLE", got, target.wantKind)
+			}
 		})
+	}
+}
+
+func TestMemoryInvalidProviderResponseUsesBadGatewayEnvelope(t *testing.T) {
+	t.Setenv("AO_MEMORY_TEST_HELPER", "invalid")
+	root := t.TempDir()
+	c := MemoryController{Projects: memoryProjects{path: root}, Sessions: memorySessions{project: "p", path: root}, Python: os.Args[0], command: func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return memoryCommand(ctx, os.Args[0], "-test.run=^TestMemoryStoreHelper$")
+	}}
+	w := httptest.NewRecorder()
+	c.graph(w, httptest.NewRequest("GET", "/memory/graph?projectId=p&scope=project", nil))
+	var got envelope.APIError
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("invalid error envelope: %v", err)
+	}
+	if w.Code != 502 || got.Error != "bad_gateway" || got.Code != "MEMORY_UNAVAILABLE" {
+		t.Fatalf("status=%d envelope=%+v, want 502/bad_gateway/MEMORY_UNAVAILABLE", w.Code, got)
 	}
 }
 
@@ -116,9 +144,14 @@ func TestMemoryHandlerUsesStoredSessionWorkspace(t *testing.T) {
 }
 
 func TestMemoryStoreHelper(t *testing.T) {
-	if os.Getenv("AO_MEMORY_TEST_HELPER") != "1" {
+	switch os.Getenv("AO_MEMORY_TEST_HELPER") {
+	case "invalid":
+		fmt.Print(`{"schema_version":1,"visibility_token":""}`)
+		os.Exit(0)
+	case "1":
+		fmt.Print(`{"schema_version":1,"visibility_token":"fixture","nodes":[],"edges":[],"errors":[]}`)
+		os.Exit(0)
+	default:
 		return
 	}
-	fmt.Print(`{"schema_version":1,"visibility_token":"fixture","nodes":[],"edges":[],"errors":[]}`)
-	os.Exit(0)
 }
