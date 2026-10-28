@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/envelope"
 	projectsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/project"
 	sessionsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/session"
@@ -21,9 +23,13 @@ import (
 type memoryProjects struct {
 	projectsvc.Manager
 	path string
+	err  error
 }
 
 func (p memoryProjects) Get(_ context.Context, id domain.ProjectID) (projectsvc.GetResult, error) {
+	if p.err != nil {
+		return projectsvc.GetResult{}, p.err
+	}
 	return projectsvc.GetResult{Project: &projectsvc.Project{ID: id, Path: p.path}}, nil
 }
 
@@ -31,9 +37,13 @@ type memorySessions struct {
 	SessionService
 	project domain.ProjectID
 	path    string
+	err     error
 }
 
 func (s memorySessions) GetRecord(_ context.Context, id domain.SessionID) (domain.SessionRecord, error) {
+	if s.err != nil {
+		return domain.SessionRecord{}, s.err
+	}
 	return domain.SessionRecord{ID: id, ProjectID: s.project, Metadata: domain.SessionMetadata{WorkspacePath: s.path}}, nil
 }
 
@@ -83,6 +93,41 @@ func TestMemoryInvalidProviderResponseUsesBadGatewayEnvelope(t *testing.T) {
 	}
 	if w.Code != 502 || got.Error != "bad_gateway" || got.Code != "MEMORY_UNAVAILABLE" {
 		t.Fatalf("status=%d envelope=%+v, want 502/bad_gateway/MEMORY_UNAVAILABLE", w.Code, got)
+	}
+}
+
+func TestMemoryLookupFailuresKeepTheirErrorKinds(t *testing.T) {
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name       string
+		projects   memoryProjects
+		sessions   memorySessions
+		scope      string
+		wantStatus int
+		wantKind   string
+		wantCode   string
+	}{
+		{"missing project", memoryProjects{err: apierr.NotFound("PROJECT_NOT_FOUND", "Unknown project")}, memorySessions{}, "project", 404, "not_found", "MEMORY_UNAVAILABLE"},
+		{"project store failure", memoryProjects{err: apierr.Internal("PROJECT_LOAD_FAILED", "Failed to load project")}, memorySessions{}, "project", 500, "internal", "PROJECT_LOAD_FAILED"},
+		{"missing session", memoryProjects{path: root}, memorySessions{err: apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")}, "session", 404, "not_found", "MEMORY_UNAVAILABLE"},
+		{"session store failure", memoryProjects{path: root}, memorySessions{err: errors.New("database unavailable")}, "session", 500, "internal", "INTERNAL_ERROR"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := MemoryController{Projects: tc.projects, Sessions: tc.sessions, Python: filepath.Join(root, "missing.exe")}
+			query := "/memory/graph?projectId=p&scope=" + tc.scope
+			if tc.scope == "session" {
+				query += "&sessionId=s"
+			}
+			w := httptest.NewRecorder()
+			c.graph(w, httptest.NewRequest("GET", query, nil))
+			var got envelope.APIError
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+				t.Fatalf("invalid error envelope: %v", err)
+			}
+			if w.Code != tc.wantStatus || got.Error != tc.wantKind || got.Code != tc.wantCode {
+				t.Fatalf("status=%d envelope=%+v, want %d/%s/%s", w.Code, got, tc.wantStatus, tc.wantKind, tc.wantCode)
+			}
+		})
 	}
 }
 

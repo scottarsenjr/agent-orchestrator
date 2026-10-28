@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/envelope"
 	aoprocess "github.com/aoagents/agent-orchestrator/backend/internal/process"
 	projectsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/project"
@@ -83,15 +84,21 @@ func memoryCommand(ctx context.Context, python string, args ...string) *exec.Cmd
 
 func (c *MemoryController) resolveWorkspace(ctx context.Context, projectID, scope, sessionID string) (string, error) {
 	project, err := c.Projects.Get(ctx, domain.ProjectID(projectID))
-	if err != nil || project.Project == nil {
-		return "", errors.New("project unavailable")
+	if err != nil {
+		return "", err
+	}
+	if project.Project == nil {
+		return "", apierr.NotFound("MEMORY_UNAVAILABLE", "Project or session workspace is unavailable.")
 	}
 	if scope == "project" {
 		return project.Project.Path, nil
 	}
 	session, err := c.Sessions.GetRecord(ctx, domain.SessionID(sessionID))
-	if err != nil || string(session.ProjectID) != projectID || session.Metadata.WorkspacePath == "" {
-		return "", errors.New("session workspace unavailable")
+	if err != nil {
+		return "", err
+	}
+	if string(session.ProjectID) != projectID || session.Metadata.WorkspacePath == "" {
+		return "", apierr.NotFound("MEMORY_UNAVAILABLE", "Project or session workspace is unavailable.")
 	}
 	return session.Metadata.WorkspacePath, nil
 }
@@ -136,7 +143,12 @@ func (c *MemoryController) graph(w http.ResponseWriter, r *http.Request) {
 	}
 	workspace, err := c.resolveWorkspace(r.Context(), projectID, scope, sessionID)
 	if err != nil {
-		writeError(404, "Project or session workspace is unavailable.")
+		var apiError *apierr.Error
+		if errors.As(err, &apiError) && apiError.Kind == apierr.KindNotFound {
+			writeError(404, "Project or session workspace is unavailable.")
+		} else {
+			envelope.WriteError(w, r, err)
+		}
 		return
 	}
 	if !filepath.IsAbs(workspace) {
