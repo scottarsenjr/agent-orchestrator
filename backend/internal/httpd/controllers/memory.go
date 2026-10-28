@@ -175,7 +175,7 @@ func (c *MemoryController) graph(w http.ResponseWriter, r *http.Request) {
 			writeError(400, "Search is too long.")
 			return
 		}
-		args = append(args, "--query", text)
+		args = append(args, "--query="+text)
 	}
 	if q.Get("metadataOnly") != "" {
 		value, err := strconv.ParseBool(q.Get("metadataOnly"))

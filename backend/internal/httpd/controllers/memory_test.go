@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -170,10 +171,14 @@ func TestMemoryHandlerUsesStoredSessionWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	var gotWorkspace string
+	var gotQueryArg string
 	c := MemoryController{Projects: projectsvc.New(store), Sessions: sessionsvc.New(nil, store), Python: os.Args[0], command: func(ctx context.Context, _ string, args ...string) *exec.Cmd {
 		for i := range args {
 			if args[i] == "--workspace" && i+1 < len(args) {
 				gotWorkspace = args[i+1]
+			}
+			if strings.HasPrefix(args[i], "--query") {
+				gotQueryArg = args[i]
 			}
 		}
 		cmd := memoryCommand(ctx, os.Args[0], "-test.run=^TestMemoryStoreHelper$")
@@ -182,9 +187,9 @@ func TestMemoryHandlerUsesStoredSessionWorkspace(t *testing.T) {
 	}}
 	t.Setenv("AO_MEMORY_TEST_HELPER", "1")
 	w := httptest.NewRecorder()
-	c.graph(w, httptest.NewRequest("GET", "/memory/graph?projectId=p&scope=session&sessionId="+string(record.ID)+"&workspace=untrusted", nil))
-	if w.Code != 200 || gotWorkspace != worktree {
-		t.Fatalf("status=%d workspace=%q, want %q", w.Code, gotWorkspace, worktree)
+	c.graph(w, httptest.NewRequest("GET", "/memory/graph?projectId=p&scope=session&sessionId="+string(record.ID)+"&workspace=untrusted&query=--flag", nil))
+	if w.Code != 200 || gotWorkspace != worktree || gotQueryArg != "--query=--flag" {
+		t.Fatalf("status=%d workspace=%q queryArg=%q, want workspace=%q queryArg=%q", w.Code, gotWorkspace, gotQueryArg, worktree, "--query=--flag")
 	}
 }
 
