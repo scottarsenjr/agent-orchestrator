@@ -74,6 +74,7 @@ type MemoryController struct {
 	Projects projectsvc.Manager
 	Sessions SessionService
 	Python   string
+	command  func(context.Context, string, ...string) *exec.Cmd
 }
 
 func memoryCommand(ctx context.Context, python string, args ...string) *exec.Cmd {
@@ -167,7 +168,11 @@ func (c *MemoryController) graph(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	cmd := memoryCommand(ctx, c.Python, args...)
+	command := c.command
+	if command == nil {
+		command = memoryCommand
+	}
+	cmd := command(ctx, c.Python, args...)
 	cmd.Env = os.Environ()
 	var out boundedBuffer
 	cmd.Stdout = &out

@@ -2,12 +2,18 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	projectsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/project"
+	sessionsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/session"
+	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite/sqlitetest"
 )
 
 type memoryProjects struct {
@@ -65,4 +71,54 @@ func TestMemoryResolvesRegisteredProjectAndSessionWorkspace(t *testing.T) {
 	if _, err := c.resolveWorkspace(context.Background(), "p", "session", "s"); err == nil {
 		t.Fatal("accepted session owned by another project")
 	}
+}
+
+func TestMemoryHandlerUsesStoredSessionWorkspace(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := memoryCommand(ctx, "git", append([]string{"-C", root}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git: %v: %s", err, out)
+		}
+	}
+	git("init", "-q")
+	git("-c", "user.name=AO Test", "-c", "user.email=ao@example.invalid", "commit", "--allow-empty", "-qm", "fixture")
+	worktree := filepath.Join(t.TempDir(), "worktree")
+	git("worktree", "add", "-qb", "session-test", worktree)
+	store := sqlitetest.MustOpen(t)
+	now := time.Now().UTC()
+	if err := store.UpsertProject(ctx, domain.ProjectRecord{ID: "p", Path: root, RegisteredAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	record, err := store.CreateSession(ctx, domain.SessionRecord{ProjectID: "p", Kind: domain.KindWorker, Activity: domain.Activity{State: domain.ActivityActive, LastActivityAt: now}, CreatedAt: now, UpdatedAt: now, Metadata: domain.SessionMetadata{WorkspacePath: worktree}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotWorkspace string
+	c := MemoryController{Projects: projectsvc.New(store), Sessions: sessionsvc.New(nil, store), Python: os.Args[0], command: func(ctx context.Context, _ string, args ...string) *exec.Cmd {
+		for i := range args {
+			if args[i] == "--workspace" && i+1 < len(args) {
+				gotWorkspace = args[i+1]
+			}
+		}
+		cmd := memoryCommand(ctx, os.Args[0], "-test.run=^TestMemoryStoreHelper$")
+		cmd.Env = append(os.Environ(), "AO_MEMORY_TEST_HELPER=1")
+		return cmd
+	}}
+	t.Setenv("AO_MEMORY_TEST_HELPER", "1")
+	w := httptest.NewRecorder()
+	c.graph(w, httptest.NewRequest("GET", "/memory/graph?projectId=p&scope=session&sessionId="+string(record.ID)+"&workspace=untrusted", nil))
+	if w.Code != 200 || gotWorkspace != worktree {
+		t.Fatalf("status=%d workspace=%q, want %q", w.Code, gotWorkspace, worktree)
+	}
+}
+
+func TestMemoryStoreHelper(t *testing.T) {
+	if os.Getenv("AO_MEMORY_TEST_HELPER") != "1" {
+		return
+	}
+	fmt.Print(`{"schema_version":1,"visibility_token":"fixture","nodes":[],"edges":[],"errors":[]}`)
+	os.Exit(0)
 }
