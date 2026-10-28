@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
-import { Archive, CalendarClock, File, Folder, LayoutDashboard, Plus } from "lucide-react";
+import { Archive, CalendarClock, File, Folder, LayoutDashboard, Network, Plus } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { NotificationCenter } from "./NotificationCenter";
 import { ProjectBoardActions } from "./ProjectBoardActions";
@@ -116,6 +116,7 @@ export function ShellTopbar({
 	const isSessionRoute = startingOrchestrator || Boolean(params.sessionId);
 	const isAutomationsRoute = location.pathname === "/automations";
 	const isArtifactsRoute = location.pathname === "/artifacts";
+	const isMemoryRoute = location.pathname === "/memory";
 	const isStandaloneBoardRoute = location.pathname === "/sessions" || location.pathname === "/sessions/";
 	const isOrchestrator = startingOrchestrator || (session ? isOrchestratorSession(session) : false);
 	const isInspectorOpen = useUiStore((state) =>
@@ -128,7 +129,7 @@ export function ShellTopbar({
 	// route slug. "Board" is the root-board crumb only.
 	const projectId = session?.workspaceId ?? params.projectId;
 	const isProjectBoardRoute = !isSessionRoute && Boolean(projectId);
-	const isRootBoardRoute = !isSessionRoute && !isProjectBoardRoute && !isAutomationsRoute && !isArtifactsRoute && !isStandaloneBoardRoute;
+	const isRootBoardRoute = !isSessionRoute && !isProjectBoardRoute && !isAutomationsRoute && !isArtifactsRoute && !isMemoryRoute && !isStandaloneBoardRoute;
 	const project = workspaceScope?.project;
 	const supportsLocalCues = Boolean(!hostId && project && toProjectKind(project.kind));
 	const projectLabel = project?.name ?? session?.workspaceName ?? (projectId ? "" : t("shell.board"));
@@ -192,6 +193,8 @@ export function ShellTopbar({
 							{t("automations.title")}
 						</span>
 					</div>
+				) : isMemoryRoute ? (
+					<div className="inline-flex min-w-0 items-center gap-1.5" data-testid="memory-topbar-label"><span className={cn(topbarProjectLabelClass, "inline-flex items-center gap-1.5")}><Network aria-hidden="true" className="size-icon-md" />Memory</span></div>
 				) : isArtifactsRoute ? (
 					<div className="inline-flex min-w-0 items-center gap-1.5" data-testid="artifacts-topbar-label">
 						<span className={cn(topbarProjectLabelClass, "inline-flex items-center gap-1.5")}>
