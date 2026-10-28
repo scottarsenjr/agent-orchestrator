@@ -15,6 +15,7 @@ import (
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/envelope"
+	aoprocess "github.com/aoagents/agent-orchestrator/backend/internal/process"
 	projectsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/project"
 	"github.com/go-chi/chi/v5"
 )
@@ -73,6 +74,10 @@ type MemoryController struct {
 	Projects projectsvc.Manager
 	Sessions SessionService
 	Python   string
+}
+
+func memoryCommand(ctx context.Context, python string, args ...string) *exec.Cmd {
+	return aoprocess.CommandContext(ctx, python, args...)
 }
 
 func (c *MemoryController) Register(r chi.Router) { r.Get("/memory/graph", c.graph) }
@@ -156,7 +161,7 @@ func (c *MemoryController) graph(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, c.Python, args...)
+	cmd := memoryCommand(ctx, c.Python, args...)
 	cmd.Env = os.Environ()
 	var out boundedBuffer
 	cmd.Stdout = &out
