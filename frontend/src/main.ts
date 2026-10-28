@@ -206,6 +206,7 @@ import type {
 import { keepDaemonAlive, shouldLinkOnAttach } from "./main/daemon-owner";
 import { readProcessStartMs } from "./main/process-start";
 import { readMigrationState, updateMigration, writeAppStateMarker, type MigrationState } from "./main/app-state";
+import { automaticUpdatesEnabled, electronProfilePath } from "./main/desktop-isolation";
 import { isAllowedAppExternalURL, openAllowedAppExternalURL } from "./main/external-open";
 import {
 	dockBounceType,
@@ -287,16 +288,10 @@ if (disableGpu === "1" || disableGpu === "true" || disableGpu === "yes" || disab
 // the daemon data dir into ~/.ao/dev.
 // AO_DEV_ELECTRON_DIR overrides the dev profile location. The default dev path
 // is shared by every checkout, and Chromium puts a singleton lock in a profile,
-// so a second worktree's `npm run dev` loses requestSingleInstanceLock() and
-// exits immediately. That is a real constraint for a tool built around parallel
-// worktree sessions: two sessions could not both run the app. Packaged builds
-// are deliberately NOT overridable — their profile is part of the install.
-app.setPath(
-	"userData",
-	app.isPackaged
-		? path.join(os.homedir(), ".ao", "electron")
-		: (process.env.AO_DEV_ELECTRON_DIR ?? path.join(os.homedir(), ".ao", "dev", "electron")),
-);
+// so a second worktree's `npm run dev` loses requestSingleInstanceLock().
+// AO_ELECTRON_DIR explicitly isolates a custom packaged build as well; the
+// installed-app default is unchanged when it is not set.
+app.setPath("userData", electronProfilePath(process.env, os.homedir(), app.isPackaged));
 
 // Resolve once against the launch cwd, before the daemon can chdir. The exact
 // absolute value is shared by policy bootstrap and every daemon spawn.
@@ -3461,7 +3456,7 @@ app.on("second-instance", (_event, argv) => {
 // A live updater additionally requires a signed + notarized build — see
 // frontend/docs/desktop-release.md.
 function initAutoUpdates(): void {
-	if (!app.isPackaged) return;
+	if (!automaticUpdatesEnabled(process.env, app.isPackaged)) return;
 	const runFile = runFilePath();
 	if (!runFile) return;
 	const stateDir = path.dirname(runFile);
