@@ -66,11 +66,12 @@ export function MemoryView() {
 			busy = true;
 			try {
 				let result = await read(metadata); if (disposed) return;
+				if (result.errors?.length) throw new Error(t("memory.readWorkspaceError"));
 				if (metadata && result.visibility_token === token) return;
 				if (metadata) { setGraph(null); setSelected(null); setState("loading"); result = await read(false); if (disposed) return; }
 				if (result.errors?.length) throw new Error(t("memory.readWorkspaceError"));
 				if (token && token !== result.visibility_token) setSelected(null);
-				token = result.visibility_token; setGraph(result); setState("ready");
+				token = result.visibility_token; setGraph(result); setError(""); setState("ready");
 		} catch (e) { if (disposed || (e instanceof DOMException && e.name === "AbortError")) return; token = ""; setGraph(null); setSelected(null); setError(e instanceof Error ? e.message : t("memory.loadError")); setState("error"); } finally { busy = false; }
 		}
 		void refresh(false);
@@ -95,6 +96,7 @@ export function MemoryView() {
 	const columns = Math.max(1, Math.min(4, Math.floor(canvasWidth / 180)));
 	const positions = useMemo(() => new Map(nodes.map((node, i) => [node.id, { x: (canvasWidth / columns) * ((i % columns) + .5), y: 55 + Math.floor(i / columns) * 85 }])), [nodes, canvasWidth, columns]);
 	const height = Math.max(300, Math.ceil(nodes.length / columns) * 85 + 40);
+	const statusOptions = [{ value: "proposed", label: t("memory.proposed") }, { value: "implemented_in_branch", label: t("memory.implementedInBranch") }, { value: "accepted", label: t("memory.accepted") }, { value: "legacy", label: t("memory.legacy") }];
 	function clear() { setSelected(null); setGraph(null); }
 	return <div className="flex min-h-0 flex-1 flex-col bg-background">
 		<header className="workspace-topbar-container center-panel-titlebar flex h-toolbar shrink-0 items-center border-b border-border-strong"><h1 className={hidesShellTopbar() ? "text-sm font-medium" : "sr-only"}>{t("memory.title")}</h1></header>
@@ -104,7 +106,7 @@ export function MemoryView() {
 			{scope !== "project" && <Field label={t("memory.sessionWorkspace")} value={session || "none"} onChange={(v) => { clear(); setSession(v); }} options={[{ value: "none", label: t("memory.selectSession") }, ...sessions.map((s) => ({ value: s.id, label: s.title }))]} />}
 			<label className="flex min-w-40 flex-1 flex-col gap-1 text-xs text-muted-foreground">{t("memory.search")}<Input aria-label={t("memory.searchPlaceholder")} value={query} onChange={(e) => { clear(); setQuery(e.target.value); }} placeholder={t("memory.searchPlaceholder")} /></label>
 			<Field label={t("memory.type")} value={type} onChange={(v) => { clear(); setType(v); }} options={[{ value: "all", label: t("memory.allTypes") }, { value: "source", label: t("memory.source") }, { value: "proposition", label: t("memory.proposition") }, { value: "entity", label: t("memory.entity") }]} />
-			<Field label={t("memory.status")} value={status} onChange={(v) => { clear(); setStatus(v); }} options={[{ value: "all", label: t("memory.allStatuses") }, { value: "proposed", label: t("memory.proposed") }, { value: "implemented_in_branch", label: t("memory.implementedInBranch") }, { value: "accepted", label: t("memory.accepted") }, { value: "legacy", label: t("memory.legacy") }]} />
+			<Field label={t("memory.status")} value={status} onChange={(v) => { clear(); setStatus(v); }} options={[{ value: "all", label: t("memory.allStatuses") }, ...statusOptions]} />
 		</div>
 		<p className="px-4 pt-2 text-xs text-muted-foreground">{t(scope === "project" ? "memory.projectWorkspace" : "memory.sessionScopeNote")}</p>
 		{catalog.isError ? <p role="alert" className="p-4 text-sm">{t("memory.loadProjectsError")}</p> : catalog.isLoading ? <p role="status" className="p-4 text-sm">{t("memory.loadingProjects")}</p> : !valid || session === "none" ? <p className="p-4 text-sm text-muted-foreground">{t("memory.selectProjectSession")}</p> : state === "loading" ? <p role="status" className="p-4 text-sm">{t("memory.loadingMemory")}</p> : state === "error" ? <p role="alert" className="p-4 text-sm">{error}</p> : graph && nodes.length === 0 ? <div className="p-4 text-sm text-muted-foreground"><p>{t(graph.empty_reason === "no_matches" ? "memory.noMatches" : "memory.empty")}</p><p className="mt-2 text-xs">{t("memory.zeroNodes")} · {graph.context.branch || t("memory.noBranch")}{graph.context.dirty ? ` · ${t("memory.uncommittedChanges")}` : ""}</p></div> : graph && <>
@@ -117,7 +119,7 @@ export function MemoryView() {
 				{detail && <aside className={`${narrow ? "w-full border-t" : "w-72 border-l"} max-w-full overflow-auto border-border p-4`} aria-label={t("memory.details")}>
 					<div className="flex items-start justify-between gap-2"><h2 className="text-sm font-medium">{detail.label}</h2><Button variant="ghost" size="sm" onClick={() => setSelected(null)}>{t("memory.closeDetails")}</Button></div>
 					<p className="mt-2 whitespace-pre-wrap text-sm">{detail.content}</p>
-					<dl className="mt-4 space-y-2 text-xs"><div><dt className="text-muted-foreground">{t("memory.type")}</dt><dd>{detail.type}</dd></div><div><dt className="text-muted-foreground">{t("memory.status")}</dt><dd>{detail.status || "—"}</dd></div><div><dt className="text-muted-foreground">{t("memory.date")}</dt><dd>{detail.date || "—"}</dd></div><div><dt className="text-muted-foreground">{t("memory.source")}</dt><dd className="break-all">{detail.source_id || "—"}</dd></div>{Object.entries(detail.provenance ?? {}).map(([k, v]) => <div key={k}><dt className="text-muted-foreground">{k.replaceAll("_", " ")}</dt><dd className="break-all">{String(v)}</dd></div>)}</dl>
+					<dl className="mt-4 space-y-2 text-xs"><div><dt className="text-muted-foreground">{t("memory.type")}</dt><dd>{detail.type}</dd></div><div><dt className="text-muted-foreground">{t("memory.status")}</dt><dd>{detail.status ? (statusOptions.find((option) => option.value === detail.status)?.label ?? detail.status.replaceAll("_", " ")) : "—"}</dd></div><div><dt className="text-muted-foreground">{t("memory.date")}</dt><dd>{detail.date || "—"}</dd></div><div><dt className="text-muted-foreground">{t("memory.source")}</dt><dd className="break-all">{detail.source_id || "—"}</dd></div>{Object.entries(detail.provenance ?? {}).map(([k, v]) => <div key={k}><dt className="text-muted-foreground">{k.replaceAll("_", " ")}</dt><dd className="break-all">{String(v)}</dd></div>)}</dl>
 					{detailLinks.length > 0 && <section className="mt-4 border-t border-border pt-3" aria-label={t("memory.storedLinks")}>
 						<h3 className="text-xs font-medium">{t("memory.storedLinks")}</h3>
 						<ul className="mt-2 divide-y divide-border">{detailLinks.map((edge) => <li key={edge.id} className="py-2 first:pt-0 last:pb-0"><div className="break-words text-xs">{nodeLabels.get(edge.source) ?? edge.source} <span aria-hidden="true">→</span><span className="sr-only"> {t("memory.to")} </span> {nodeLabels.get(edge.target) ?? edge.target}</div><div className="text-xs text-muted-foreground">{edge.type.replaceAll("_", " ")}</div></li>)}</ul>
