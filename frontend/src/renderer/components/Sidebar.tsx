@@ -1021,7 +1021,7 @@ export function Sidebar({
 						/>
 					</SidebarMenuItem>
 					<SidebarMenuItem>
-						<SidebarTopNavRow active={selection.isMemory} icon={<Network aria-hidden="true" />} label="Memory" onClick={selection.goMemory} tooltip={isCollapsed ? "Memory" : undefined} />
+						<SidebarTopNavRow active={selection.isMemory} icon={<Network aria-hidden="true" />} label={t("memory.title")} onClick={selection.goMemory} tooltip={isCollapsed ? t("memory.title") : undefined} />
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarTopNavRow

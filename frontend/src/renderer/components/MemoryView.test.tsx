@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { MemoryView } from "./MemoryView";
@@ -7,6 +7,22 @@ import { MemoryView } from "./MemoryView";
 vi.mock("../lib/api-client", () => ({ getApiBaseUrl: () => "http://localhost", apiClient: { GET: async (path: string) => path.endsWith("projects") ? { data: { projects: [{ id: "p", name: "Project", path: "/project" }] } } : { data: { sessions: [] } } } }));
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+it("shows stored link type and direction in selected details", async () => {
+	const graph = { visibility_token: "v1", context: { branch: "main", dirty: false }, nodes: [
+		{ id: "source", type: "source", label: "Example source", content: "Source detail", status: "accepted", provenance: {} },
+		{ id: "entity", type: "entity", label: "Related entity", content: "Entity detail", status: null, provenance: {} },
+	], edges: [{ id: "link", source: "source", target: "entity", type: "source_entity" }], counts: { visible: 2, returned: 2 }, truncated: false, empty_reason: null, errors: [] };
+	vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => graph })));
+	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+	render(<QueryClientProvider client={client}><MemoryView /></QueryClientProvider>);
+	await userEvent.setup().click(await screen.findByRole("button", { name: "source: Example source" }));
+	const links = within(screen.getByRole("complementary", { name: "Memory details" })).getByRole("region", { name: "Stored memory links" });
+	expect(within(links).getByText("source entity")).toBeInTheDocument();
+	expect(within(links).getByText("→")).toBeVisible();
+	expect(links.textContent).toContain("Example source");
+	expect(links.textContent).toContain("Related entity");
+});
 
 it("clears selected details when search changes and shows no matches", async () => {
 	const graph = { visibility_token: "v1", context: { branch: "main", dirty: false }, nodes: [{ id: "n", type: "source", label: "Example source", content: "Private detail", status: "accepted", provenance: {} }], edges: [], counts: { visible: 1, returned: 1 }, truncated: false, empty_reason: null, errors: [] };

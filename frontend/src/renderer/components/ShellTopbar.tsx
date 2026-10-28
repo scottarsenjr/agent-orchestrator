@@ -194,7 +194,7 @@ export function ShellTopbar({
 						</span>
 					</div>
 				) : isMemoryRoute ? (
-					<div className="inline-flex min-w-0 items-center gap-1.5" data-testid="memory-topbar-label"><span className={cn(topbarProjectLabelClass, "inline-flex items-center gap-1.5")}><Network aria-hidden="true" className="size-icon-md" />Memory</span></div>
+					<div className="inline-flex min-w-0 items-center gap-1.5" data-testid="memory-topbar-label"><span className={cn(topbarProjectLabelClass, "inline-flex items-center gap-1.5")}><Network aria-hidden="true" className="size-icon-md" />{t("memory.title")}</span></div>
 				) : isArtifactsRoute ? (
 					<div className="inline-flex min-w-0 items-center gap-1.5" data-testid="artifacts-topbar-label">
 						<span className={cn(topbarProjectLabelClass, "inline-flex items-center gap-1.5")}>
