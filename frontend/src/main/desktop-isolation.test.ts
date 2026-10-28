@@ -8,6 +8,9 @@ describe("desktop isolation", () => {
 		expect(electronProfilePath({}, "home", false, "data")).toBe(path.join("home", ".ao", "dev", "electron"));
 		expect(electronProfilePath({ AO_DATA_DIR: "isolated" }, "home", true, "isolated")).toBe(path.join("isolated", "electron"));
 		expect(electronProfilePath({ AO_DATA_DIR: "isolated" }, "home", false, "isolated")).toBe(path.join("isolated", "electron"));
+		expect(electronProfilePath({ AO_DEV_ELECTRON_DIR: "dev-profile" }, "home", false, "data")).toBe("dev-profile");
+		expect(electronProfilePath({ AO_DATA_DIR: "isolated", AO_DEV_ELECTRON_DIR: "dev-profile" }, "home", false, "isolated")).toBe("dev-profile");
+		expect(electronProfilePath({ AO_DATA_DIR: "isolated", AO_DEV_ELECTRON_DIR: "dev-profile" }, "home", true, "isolated")).toBe(path.join("isolated", "electron"));
 	});
 	it("can disable updates without changing the packaged default", () => {
 		expect(automaticUpdatesEnabled({}, true)).toBe(true);
