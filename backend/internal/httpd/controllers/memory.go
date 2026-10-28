@@ -80,6 +80,21 @@ func memoryCommand(ctx context.Context, python string, args ...string) *exec.Cmd
 	return aoprocess.CommandContext(ctx, python, args...)
 }
 
+func (c *MemoryController) resolveWorkspace(ctx context.Context, projectID, scope, sessionID string) (string, error) {
+	project, err := c.Projects.Get(ctx, domain.ProjectID(projectID))
+	if err != nil || project.Project == nil {
+		return "", errors.New("project unavailable")
+	}
+	if scope == "project" {
+		return project.Project.Path, nil
+	}
+	session, err := c.Sessions.GetRecord(ctx, domain.SessionID(sessionID))
+	if err != nil || string(session.ProjectID) != projectID || session.Metadata.WorkspacePath == "" {
+		return "", errors.New("session workspace unavailable")
+	}
+	return session.Metadata.WorkspacePath, nil
+}
+
 func (c *MemoryController) Register(r chi.Router) { r.Get("/memory/graph", c.graph) }
 
 // boundedBuffer rejects output beyond the cap instead of allowing an untrusted
@@ -109,19 +124,10 @@ func (c *MemoryController) graph(w http.ResponseWriter, r *http.Request) {
 		bad(503, "Memory is not configured.")
 		return
 	}
-	project, err := c.Projects.Get(r.Context(), domain.ProjectID(projectID))
-	if err != nil || project.Project == nil {
-		bad(404, "Project is unavailable.")
+	workspace, err := c.resolveWorkspace(r.Context(), projectID, scope, sessionID)
+	if err != nil {
+		bad(404, "Project or session workspace is unavailable.")
 		return
-	}
-	workspace := project.Project.Path
-	if scope != "project" {
-		session, err := c.Sessions.GetRecord(r.Context(), domain.SessionID(sessionID))
-		if err != nil || string(session.ProjectID) != projectID || session.Metadata.WorkspacePath == "" {
-			bad(404, "Session workspace is unavailable.")
-			return
-		}
-		workspace = session.Metadata.WorkspacePath
 	}
 	if !filepath.IsAbs(workspace) {
 		bad(503, "Workspace is unavailable.")

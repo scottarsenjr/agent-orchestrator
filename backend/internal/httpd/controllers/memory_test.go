@@ -51,3 +51,18 @@ func TestMemoryRejectsWrongScopeAndInvalidFilters(t *testing.T) {
 		})
 	}
 }
+
+func TestMemoryResolvesRegisteredProjectAndSessionWorkspace(t *testing.T) {
+	root, worktree := t.TempDir(), t.TempDir()
+	c := MemoryController{Projects: memoryProjects{path: root}, Sessions: memorySessions{project: "p", path: worktree}}
+	for _, tc := range []struct{ scope, session, want string }{{"project", "", root}, {"worktree", "s", worktree}, {"session", "s", worktree}} {
+		got, err := c.resolveWorkspace(context.Background(), "p", tc.scope, tc.session)
+		if err != nil || got != tc.want {
+			t.Fatalf("%s: got %q, %v; want %q", tc.scope, got, err, tc.want)
+		}
+	}
+	c.Sessions = memorySessions{project: "other", path: worktree}
+	if _, err := c.resolveWorkspace(context.Background(), "p", "session", "s"); err == nil {
+		t.Fatal("accepted session owned by another project")
+	}
+}
