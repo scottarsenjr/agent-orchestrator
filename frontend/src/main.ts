@@ -289,14 +289,13 @@ if (disableGpu === "1" || disableGpu === "true" || disableGpu === "yes" || disab
 // AO_DEV_ELECTRON_DIR overrides the dev profile location. The default dev path
 // is shared by every checkout, and Chromium puts a singleton lock in a profile,
 // so a second worktree's `npm run dev` loses requestSingleInstanceLock().
-// AO_ELECTRON_DIR explicitly isolates a custom packaged build as well; the
-// installed-app default is unchanged when it is not set.
-app.setPath("userData", electronProfilePath(process.env, os.homedir(), app.isPackaged));
-
 // Resolve once against the launch cwd, before the daemon can chdir. The exact
 // absolute value is shared by policy bootstrap and every daemon spawn.
 const desktopLaunchWorkingDirectory = process.cwd();
 const desktopDataDir = resolveDesktopDataDir(process.env, os.homedir(), desktopLaunchWorkingDirectory, app.isPackaged);
+// AO_DATA_DIR isolates a custom packaged build's Chromium state alongside its
+// daemon state; the installed-app default is unchanged when it is not set.
+app.setPath("userData", electronProfilePath(process.env, os.homedir(), app.isPackaged, desktopDataDir));
 let telemetryPolicyController: DesktopTelemetryController | null = null;
 // PostHog identity: the user-facing analytics opt-out (marker file shared with the
 // daemon) and the loopback hand-off of the signed-in AO Cloud user ID.

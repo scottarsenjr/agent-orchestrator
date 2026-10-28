@@ -3,10 +3,11 @@ import { describe, expect, it } from "vitest";
 import { automaticUpdatesEnabled, electronProfilePath } from "./desktop-isolation";
 
 describe("desktop isolation", () => {
-	it("keeps existing defaults and honors an explicit packaged profile", () => {
-		expect(electronProfilePath({}, "home", true)).toBe(path.join("home", ".ao", "electron"));
-		expect(electronProfilePath({}, "home", false)).toBe(path.join("home", ".ao", "dev", "electron"));
-		expect(electronProfilePath({ AO_ELECTRON_DIR: "isolated" }, "home", true)).toBe("isolated");
+	it("keeps existing defaults and isolates a custom data directory", () => {
+		expect(electronProfilePath({}, "home", true, "data")).toBe(path.join("home", ".ao", "electron"));
+		expect(electronProfilePath({}, "home", false, "data")).toBe(path.join("home", ".ao", "dev", "electron"));
+		expect(electronProfilePath({ AO_DATA_DIR: "isolated" }, "home", true, "isolated")).toBe(path.join("isolated", "electron"));
+		expect(electronProfilePath({ AO_DATA_DIR: "isolated" }, "home", false, "isolated")).toBe(path.join("isolated", "electron"));
 	});
 	it("can disable updates without changing the packaged default", () => {
 		expect(automaticUpdatesEnabled({}, true)).toBe(true);
