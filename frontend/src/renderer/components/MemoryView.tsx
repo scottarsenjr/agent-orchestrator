@@ -97,7 +97,7 @@ export function MemoryView() {
 	const positions = useMemo(() => new Map(nodes.map((node, i) => [node.id, { x: (canvasWidth / columns) * ((i % columns) + .5), y: 55 + Math.floor(i / columns) * 85 }])), [nodes, canvasWidth, columns]);
 	const height = Math.max(300, Math.ceil(nodes.length / columns) * 85 + 40);
 	const statusOptions = [{ value: "proposed", label: t("memory.proposed") }, { value: "implemented_in_branch", label: t("memory.implementedInBranch") }, { value: "accepted", label: t("memory.accepted") }, { value: "legacy", label: t("memory.legacy") }];
-	function clear() { setSelected(null); setGraph(null); }
+	function clear() { setSelected(null); setGraph(null); setView({ x: 0, y: 0, scale: 1 }); }
 	return <div className="flex min-h-0 flex-1 flex-col bg-background">
 		<header className="workspace-topbar-container center-panel-titlebar flex h-toolbar shrink-0 items-center border-b border-border-strong"><h1 className={hidesShellTopbar() ? "text-sm font-medium" : "sr-only"}>{t("memory.title")}</h1></header>
 		<div className="flex flex-wrap items-end gap-3 border-b border-border p-4">
