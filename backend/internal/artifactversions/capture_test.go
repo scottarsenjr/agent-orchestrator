@@ -315,6 +315,9 @@ func TestCaptureSession_RefusesVersionsSymlinkOutsideArtifactDir(t *testing.T) {
 
 func TestCaptureSession_BoundsBytesCopiedPerCall(t *testing.T) {
 	h := newHarness(t)
+	if err := os.WriteFile(filepath.Join(h.dir, sessionartifacts.ManifestName), []byte(`{"include":["a.bin","b.bin"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	big := make([]byte, MaxBytesPerSession/2+1)
 	for _, name := range []string{"a.bin", "b.bin"} {
 		if err := os.WriteFile(filepath.Join(h.dir, name), big, 0o600); err != nil {

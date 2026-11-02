@@ -6,7 +6,9 @@ package sessionartifacts
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -34,6 +36,9 @@ func Dir(dataDir string, id domain.SessionID) string {
 // artifacts themselves.
 const VersionsDir = ".versions"
 
+// ManifestName allows a session to explicitly publish an otherwise hidden file.
+const ManifestName = ".ao-artifacts.json"
+
 // MaxFiles bounds how many files List returns so a pathological artifact tree
 // cannot stall a session read or the lifecycle reconcile that runs under the
 // lifecycle mutex.
@@ -57,6 +62,7 @@ func List(ctx context.Context, dir string) ([]domain.SessionArtifactFile, error)
 		return nil, err
 	}
 	files := make([]domain.SessionArtifactFile, 0)
+	explicit := explicitArtifacts(root)
 	visited := 0
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
 		if err := ctx.Err(); err != nil {
@@ -91,17 +97,26 @@ func List(ctx context.Context, dir string) ([]domain.SessionArtifactFile, error)
 			if d.Name() == VersionsDir && filepath.Dir(path) == root {
 				return filepath.SkipDir
 			}
+			if path != root && technicalDir(path, d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Name() == ManifestName {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil //nolint:nilerr // skip invalid paths
+		}
+		rel = filepath.ToSlash(rel)
+		if !allowedArtifact(rel) && !explicit[rel] {
 			return nil
 		}
 		info, err := d.Info()
 		if err != nil || !info.Mode().IsRegular() {
 			return nil //nolint:nilerr // an entry that cannot be stat'd is skipped, not fatal
 		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return nil //nolint:nilerr // an entry outside root is skipped, not fatal
-		}
-		rel = filepath.ToSlash(rel)
 		files = append(files, domain.SessionArtifactFile{
 			Path:      rel,
 			Name:      filepath.Base(path),
@@ -121,6 +136,63 @@ func List(ctx context.Context, dir string) ([]domain.SessionArtifactFile, error)
 		return files[i].Path < files[j].Path
 	})
 	return files, nil
+}
+
+// Explicit paths still have to be discovered through the ordinary walk:
+// they cannot traverse symlinks or ignored technical directories.
+func explicitArtifacts(root string) map[string]bool {
+	result := make(map[string]bool)
+	name := filepath.Join(root, ManifestName)
+	info, err := os.Lstat(name)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 64*1024 {
+		return result
+	}
+	f, err := os.Open(name)
+	if err != nil {
+		return result
+	}
+	defer func() { _ = f.Close() }()
+	var manifest struct {
+		Include []string `json:"include"`
+	}
+	if json.NewDecoder(io.LimitReader(f, 64*1024)).Decode(&manifest) != nil {
+		return result
+	}
+	for _, path := range manifest.Include {
+		path = strings.ReplaceAll(path, "\\", "/")
+		if fs.ValidPath(path) && path != "." {
+			result[path] = true
+		}
+	}
+	return result
+}
+
+func allowedArtifact(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".md", ".markdown", ".html", ".htm", ".pdf", ".txt", ".csv", ".tsv", ".xlsx", ".xls", ".docx", ".pptx", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg":
+		return true
+	default:
+		return false
+	}
+}
+
+func technicalDir(path, name string) bool {
+	lower := strings.ToLower(name)
+	switch lower {
+	case ".venv", "venv", "core-env", ".tox", ".mypy_cache", ".pytest_cache", "dist", "build", "target":
+		return true
+	}
+	if strings.HasSuffix(lower, "-win32-x64") || strings.HasSuffix(lower, "-win32-arm64") {
+		return true
+	}
+	if strings.HasPrefix(lower, "package-") {
+		suffix := strings.TrimPrefix(lower, "package-")
+		if len(suffix) >= 7 && len(strings.Trim(suffix, "0123456789abcdef")) == 0 {
+			return true
+		}
+	}
+	_, err := os.Stat(filepath.Join(path, "pyvenv.cfg"))
+	return err == nil
 }
 
 // ignoredNames are OS metadata files and tool directories that List skips,

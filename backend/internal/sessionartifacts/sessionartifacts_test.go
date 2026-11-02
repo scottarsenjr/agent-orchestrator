@@ -47,11 +47,51 @@ func TestList_ClassifiesByExtensionAndSortsByPath(t *testing.T) {
 		got[f.Path] = f.Kind
 		paths = append(paths, f.Path)
 	}
-	if !sort.StringsAreSorted(paths) || len(paths) != 4 {
-		t.Fatalf("paths = %v, want 4 sorted", paths)
+	if !sort.StringsAreSorted(paths) || len(paths) != 2 {
+		t.Fatalf("paths = %v, want 2 sorted", paths)
 	}
-	if got["b.html"] != domain.SessionArtifactHTML || got["a.md"] != domain.SessionArtifactMarkdown || got["c.bin"] != domain.SessionArtifactGeneric || got["noext"] != domain.SessionArtifactGeneric {
+	if got["b.html"] != domain.SessionArtifactHTML || got["a.md"] != domain.SessionArtifactMarkdown {
 		t.Fatalf("kinds = %v", got)
+	}
+}
+
+func TestList_FiltersTechnicalFilesAndSupportsExplicitOutputs(t *testing.T) {
+	dir := t.TempDir()
+	contents := map[string]string{
+		"report.PDF": "pdf", "site/index.html": "html", "site/app.js": "asset",
+		"plan.md": "md", "data.xlsx": "excel", "screenshot.png": "image",
+		"chosen.ps1": "script", "other.ps1": "script", "app.pak": "binary",
+		"package-abcdef1/resources/README.md":               "build",
+		"Agent Orchestrator-win32-x64/resources/index.html": "build",
+		"core-env/docs/README.md":                           "environment", ".venv/README.md": "environment",
+		"custom-env/pyvenv.cfg": "env", "custom-env/help.md": "environment",
+		ManifestName: `{"include":["chosen.ps1","../outside.ps1","core-env/docs/README.md"]}`,
+	}
+	for rel, value := range contents {
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(value), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, err := List(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var paths []string
+	for _, file := range files {
+		paths = append(paths, file.Path)
+	}
+	want := []string{"chosen.ps1", "data.xlsx", "plan.md", "report.PDF", "screenshot.png", "site/index.html"}
+	if fmt.Sprint(paths) != fmt.Sprint(want) {
+		t.Fatalf("paths = %v, want %v", paths, want)
+	}
+	for rel := range contents {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
+			t.Fatalf("file %s was modified: %v", rel, err)
+		}
 	}
 }
 
