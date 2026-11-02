@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { CalendarDays, CircleDot, FileText, Link2, Tag } from "lucide-react";
 import { LoaderCircle } from "lucide-react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { apiClient, getApiBaseUrl } from "../lib/api-client";
 import { hidesShellTopbar } from "../lib/platform";
-import { Button } from "./ui/button";
+import { Dialog, DialogContent, DialogOverlay, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { MemoryGraph } from "./MemoryGraph";
@@ -103,15 +106,28 @@ export function MemoryView() {
 			<div className="flex min-h-0 flex-1 flex-row">
 				<MemoryGraph key={project} project={project} nodes={nodes} edges={graph.edges} selected={selected} onSelect={setSelected} resetKey={key} />
 				<ul className="sr-only" aria-label={t("memory.storedLinks")}>{graph.edges.map((edge) => <li key={edge.id}>{nodeLabels.get(edge.source) ?? edge.source} {t("memory.to")} {nodeLabels.get(edge.target) ?? edge.target} — {edge.type.replaceAll("_", " ")}</li>)}</ul>
-				{detail && <aside className="w-72 max-w-full overflow-auto border-l border-border p-4" aria-label={t("memory.details")}>
-					<div className="flex items-start justify-between gap-2"><h2 className="text-sm font-medium">{detail.label}</h2><Button variant="ghost" size="sm" onClick={() => setSelected(null)}>{t("memory.closeDetails")}</Button></div>
-					<p className="mt-2 whitespace-pre-wrap text-sm">{detail.content}</p>
-					<dl className="mt-4 space-y-2 text-xs"><div><dt className="text-muted-foreground">{t("memory.type")}</dt><dd>{detail.type}</dd></div><div><dt className="text-muted-foreground">{t("memory.status")}</dt><dd>{detail.status ? (statusOptions.find((option) => option.value === detail.status)?.label ?? detail.status.replaceAll("_", " ")) : "—"}</dd></div><div><dt className="text-muted-foreground">{t("memory.date")}</dt><dd>{detail.date || "—"}</dd></div><div><dt className="text-muted-foreground">{t("memory.source")}</dt><dd className="break-all">{detail.source_id || "—"}</dd></div>{Object.entries(detail.provenance ?? {}).map(([k, v]) => <div key={k}><dt className="text-muted-foreground">{k.replaceAll("_", " ")}</dt><dd className="break-all">{String(v)}</dd></div>)}</dl>
-					{detailLinks.length > 0 && <section className="mt-4 border-t border-border pt-3" aria-label={t("memory.storedLinks")}>
-						<h3 className="text-xs font-medium">{t("memory.storedLinks")}</h3>
-						<ul className="mt-2 divide-y divide-border">{detailLinks.map((edge) => <li key={edge.id} className="py-2 first:pt-0 last:pb-0"><div className="break-words text-xs">{nodeLabels.get(edge.source) ?? edge.source} <span aria-hidden="true">→</span><span className="sr-only"> {t("memory.to")} </span> {nodeLabels.get(edge.target) ?? edge.target}</div><div className="text-xs text-muted-foreground">{edge.type.replaceAll("_", " ")}</div></li>)}</ul>
-					</section>}
-				</aside>}
+				<Dialog open={Boolean(detail)} onOpenChange={(open) => { if (!open) setSelected(null); }}>
+					{detail && <DialogContent aria-describedby={undefined} aria-label={t("memory.details")} overlay={<DialogOverlay className="bg-black/65 backdrop-blur-sm" />} className="max-h-[min(85vh,900px)] w-[min(900px,calc(100vw-48px))] max-w-none overflow-y-auto rounded-xl border-[#3b3b3d] bg-[#1c1c1c] p-0 text-[#dedee2] shadow-2xl">
+						<article className="mx-auto w-full max-w-[720px] px-8 pb-12 pt-10 sm:px-14 sm:pt-14">
+							<DialogTitle className="break-words pr-5 text-[28px] font-bold leading-tight text-[#e2e2e7] sm:text-[32px]">{detail.label}</DialogTitle>
+							<h2 className="mb-4 mt-8 text-sm font-semibold text-[#d4d4db]">{t("memory.details")}</h2>
+							<dl className="space-y-3 text-sm">
+								<div className="grid grid-cols-[136px_minmax(0,1fr)] gap-3"><dt className="flex items-center gap-2 text-[#a8a8b1]"><Tag size={15} />{t("memory.type")}</dt><dd><span className="rounded-full bg-[#392c55] px-2 py-0.5 text-[#c7a7ff]">{detail.type}</span></dd></div>
+								<div className="grid grid-cols-[136px_minmax(0,1fr)] gap-3"><dt className="flex items-center gap-2 text-[#a8a8b1]"><CircleDot size={15} />{t("memory.status")}</dt><dd>{detail.status ? (statusOptions.find((option) => option.value === detail.status)?.label ?? detail.status.replaceAll("_", " ")) : "—"}</dd></div>
+								<div className="grid grid-cols-[136px_minmax(0,1fr)] gap-3"><dt className="flex items-center gap-2 text-[#a8a8b1]"><CalendarDays size={15} />{t("memory.date")}</dt><dd>{detail.date || "—"}</dd></div>
+								<div className="grid grid-cols-[136px_minmax(0,1fr)] gap-3"><dt className="flex items-center gap-2 text-[#a8a8b1]"><FileText size={15} />{t("memory.source")}</dt><dd className="break-all">{detail.source_id || "—"}</dd></div>
+								{Object.entries(detail.provenance ?? {}).map(([k, v]) => <div key={k} className="grid grid-cols-[136px_minmax(0,1fr)] gap-3"><dt className="flex items-center gap-2 text-[#a8a8b1]"><Link2 size={15} />{k.replaceAll("_", " ")}</dt><dd className="break-all">{String(v)}</dd></div>)}
+							</dl>
+							<div className="mt-10 break-words text-sm leading-7 text-[#e0e0e4] [&_a]:text-[#b695ff] [&_a]:underline [&_code]:rounded [&_code]:bg-[#303033] [&_code]:px-1 [&_h1]:mb-3 [&_h1]:text-2xl [&_h2]:mb-2 [&_h2]:mt-5 [&_h2]:text-xl [&_li]:ml-5 [&_li]:list-disc [&_p]:mb-4 [&_p]:whitespace-pre-wrap [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-[#252525] [&_pre]:p-3">
+								<Markdown remarkPlugins={[remarkGfm]} skipHtml components={{ img: ({ alt }) => <span>{alt}</span> }}>{detail.content}</Markdown>
+							</div>
+							{detailLinks.length > 0 && <section className="mt-8 border-t border-[#38383b] pt-5" aria-label={t("memory.storedLinks")}>
+								<h3 className="text-xs font-medium text-[#aaaab3]">{t("memory.storedLinks")}</h3>
+								<ul className="mt-3 space-y-2">{detailLinks.map((edge) => <li key={edge.id} className="break-words text-xs text-[#c4b5fd]">{nodeLabels.get(edge.source) ?? edge.source} <span aria-hidden="true">→</span><span className="sr-only"> {t("memory.to")} </span> {nodeLabels.get(edge.target) ?? edge.target} <span className="text-[#85858d]">· {edge.type.replaceAll("_", " ")}</span></li>)}</ul>
+							</section>}
+						</article>
+					</DialogContent>}
+				</Dialog>
 			</div>
 		</>}
 	</div>;

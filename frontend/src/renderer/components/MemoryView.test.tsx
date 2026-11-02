@@ -27,11 +27,27 @@ it("shows stored link type and direction in selected details", async () => {
 	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 	render(<QueryClientProvider client={client}><MemoryView /></QueryClientProvider>);
 	await userEvent.setup().click(await screen.findByRole("button", { name: "source: Example source" }));
-	const links = within(screen.getByRole("complementary", { name: "Memory details" })).getByRole("region", { name: "Stored memory links" });
-	expect(within(links).getByText("source entity")).toBeInTheDocument();
+	const links = within(screen.getByRole("dialog", { name: "Example source" })).getByRole("region", { name: "Stored memory links" });
+	expect(within(links).getByText(/source entity/)).toBeInTheDocument();
 	expect(within(links).getByText("→")).toBeVisible();
 	expect(links.textContent).toContain("Example source");
 	expect(links.textContent).toContain("Related entity");
+});
+
+it("opens a dismissible memory dialog with metadata and rendered markdown", async () => {
+	const graph = { visibility_token: "v1", context: { branch: "main", dirty: false }, nodes: [{ id: "n", type: "source", label: "A decision", content: "## Details\n\n- **Verified** result", status: "accepted", date: "2026-11-02", source_id: "source-1", provenance: { branch: "main" } }], edges: [], counts: { visible: 1, returned: 1 }, truncated: false, empty_reason: null, errors: [] };
+	vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => graph })));
+	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+	render(<QueryClientProvider client={client}><MemoryView /></QueryClientProvider>);
+	const user = userEvent.setup();
+	await user.click(await screen.findByRole("button", { name: "source: A decision" }));
+	const dialog = screen.getByRole("dialog", { name: "A decision" });
+	expect(within(dialog).getByRole("heading", { name: "Details" })).toBeInTheDocument();
+	expect(within(dialog).getByText("Verified").tagName).toBe("STRONG");
+	expect(within(dialog).getByText("2026-11-02")).toBeInTheDocument();
+	expect(within(dialog).getByText("source-1")).toBeInTheDocument();
+	await user.keyboard("{Escape}");
+	expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 });
 
 it("clears selected details when search changes and shows no matches", async () => {
@@ -42,6 +58,7 @@ it("clears selected details when search changes and shows no matches", async () 
 	const user = userEvent.setup();
 	await user.click(await screen.findByRole("button", { name: "source: Example source" }));
 	expect(screen.getByText("Private detail")).toBeInTheDocument();
+	await user.keyboard("{Escape}");
 	await user.type(screen.getByRole("textbox", { name: "Search memory" }), "missing");
 	await waitFor(() => expect(screen.queryByText("Private detail")).not.toBeInTheDocument());
 	expect(await screen.findByText("No memory matches these filters.")).toBeInTheDocument();
@@ -110,11 +127,12 @@ it("shows translated known status and readable unknown status in details", async
 	render(<I18nextProvider i18n={i18n}><QueryClientProvider client={client}><MemoryView /></QueryClientProvider></I18nextProvider>);
 	const user = userEvent.setup();
 	await user.click(await screen.findByRole("button", { name: "proposition: Implemented claim" }));
-	const details = screen.getByRole("complementary");
+	const details = screen.getByRole("dialog");
 	expect(within(details).getByText(i18n.t("memory.implementedInBranch"))).toBeInTheDocument();
 	expect(within(details).queryByText("implemented_in_branch")).not.toBeInTheDocument();
+	await user.keyboard("{Escape}");
 	await user.click(screen.getByRole("button", { name: "proposition: Future claim" }));
-	expect(within(details).getByText("future status")).toBeInTheDocument();
+	expect(within(screen.getByRole("dialog")).getByText("future status")).toBeInTheDocument();
 });
 
 it("resets an offscreen graph viewport when search changes", async () => {

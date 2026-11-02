@@ -62,6 +62,8 @@ export function MemoryGraph({ nodes, edges, selected, onSelect, resetKey, projec
 	const canvas = useRef<HTMLDivElement>(null);
 	const svgRef = useRef<SVGSVGElement>(null);
 	const drag = useRef<{ x: number; y: number; originX: number; originY: number } | null>(null);
+	const nodeDrag = useRef<{ id: string; x: number; y: number; moved: boolean; initialFx: number | null | undefined; initialFy: number | null | undefined } | null>(null);
+	const suppressClick = useRef(false);
 	const simulationRef = useRef<ReturnType<typeof forceSimulation<Point>> | null>(null);
 	const connected = useMemo(() => new Set(edges.flatMap((edge) => [edge.source, edge.target])), [edges]);
 	const visible = useMemo(() => showOrphans ? nodes : nodes.filter((node) => connected.has(node.id)), [nodes, connected, showOrphans]);
@@ -128,10 +130,20 @@ export function MemoryGraph({ nodes, edges, selected, onSelect, resetKey, projec
 		point.fx = position.x; point.fy = position.y;
 		simulationRef.current?.alphaTarget(.2).restart();
 	};
-	const releaseNode = (id: string) => {
+	const releaseNode = (id: string, canceled = false) => {
+		const gesture = nodeDrag.current;
 		const point = simulationRef.current?.nodes().find((item) => item.id === id);
-		if (point) { point.fx = null; point.fy = null; }
+		if (gesture?.id === id && point && gesture.moved && canceled) { point.fx = gesture.initialFx; point.fy = gesture.initialFy; }
+		if (gesture?.id === id && gesture.moved) suppressClick.current = true;
+		nodeDrag.current = null;
 		simulationRef.current?.alphaTarget(0);
+	};
+	const dragNode = (event: PointerEvent<SVGGElement>, id: string) => {
+		const gesture = nodeDrag.current;
+		if (!gesture || gesture.id !== id) return;
+		if (!gesture.moved && Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) < 5) return;
+		gesture.moved = true;
+		moveNode(event, id);
 	};
 	const pan = (event: PointerEvent<SVGSVGElement>) => {
 		const start = drag.current;
@@ -159,7 +171,7 @@ export function MemoryGraph({ nodes, edges, selected, onSelect, resetKey, projec
 				const isActive = active === node.id;
 				return <g key={node.id} role="button" tabIndex={0} aria-label={`${node.type}: ${node.label}`} className="cursor-pointer outline-none" opacity={active && !neighbors.has(node.id) ? .2 : 1}
 					onPointerEnter={() => setHovered(node.id)} onPointerLeave={() => setHovered((id) => id === node.id ? null : id)} onFocus={() => setFocused(node.id)} onBlur={() => setFocused((id) => id === node.id ? null : id)}
-					onPointerDown={(event) => { event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); moveNode(event, node.id); }} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) moveNode(event, node.id); }} onPointerUp={() => releaseNode(node.id)} onPointerCancel={() => releaseNode(node.id)} onClick={() => onSelect(node.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(node.id); } }}>
+					onPointerDown={(event) => { if (event.button !== 0) return; event.stopPropagation(); suppressClick.current = false; const point = simulationRef.current?.nodes().find((item) => item.id === node.id); nodeDrag.current = { id: node.id, x: event.clientX, y: event.clientY, moved: false, initialFx: point?.fx, initialFy: point?.fy }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => dragNode(event, node.id)} onPointerUp={() => releaseNode(node.id)} onPointerCancel={() => releaseNode(node.id, true)} onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } onSelect(node.id); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(node.id); } }}>
 					<circle cx={p.x} cy={p.y} r={isActive ? radius * 1.4 : radius} fill={color} stroke={isActive || selected === node.id ? "white" : "none"} strokeWidth={isActive ? 2.5 : 2} />
 					<circle cx={p.x} cy={p.y} r={Math.max(radius, 8 / view.scale)} fill="transparent" aria-hidden="true" />
 					<title>{node.label}</title>

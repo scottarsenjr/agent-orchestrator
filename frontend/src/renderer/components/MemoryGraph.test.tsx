@@ -1,8 +1,34 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { MemoryGraph } from "./MemoryGraph";
 
 afterEach(() => { localStorage.clear(); vi.unstubAllGlobals(); });
+
+it("keeps a dragged node at its new position without selecting it, while a click still selects it", async () => {
+	vi.stubGlobal("PointerEvent", MouseEvent);
+	const onSelect = vi.fn();
+	const nodes = [{ id: "a", type: "source", label: "Note", status: null }];
+	const edges: never[] = [];
+	const { container, rerender } = render(<MemoryGraph nodes={nodes} edges={edges} selected={null} onSelect={onSelect} resetKey="node-drag" />);
+	const svg = container.querySelector("svg")!;
+	Object.defineProperty(svg, "getScreenCTM", { value: () => ({ inverse: () => ({}) }) });
+	Object.defineProperty(svg, "createSVGPoint", { value: () => ({ x: 0, y: 0, matrixTransform() { return { x: this.x, y: this.y }; } }) });
+	const node = screen.getByRole("button", { name: "source: Note" });
+	Object.defineProperty(node, "setPointerCapture", { value: vi.fn() });
+	fireEvent.pointerDown(node, { clientX: 10, clientY: 10, button: 0 });
+	fireEvent.pointerMove(node, { clientX: 60, clientY: 75, buttons: 1 });
+	fireEvent.pointerUp(node, { clientX: 60, clientY: 75 });
+	fireEvent.click(node);
+	expect(onSelect).not.toHaveBeenCalled();
+	await waitFor(() => { expect(Number(node.querySelector("circle")?.getAttribute("cx"))).toBeCloseTo(60); expect(Number(node.querySelector("circle")?.getAttribute("cy"))).toBeCloseTo(75); });
+	fireEvent.pointerDown(node, { clientX: 60, clientY: 75, button: 0 });
+	fireEvent.pointerUp(node, { clientX: 60, clientY: 75 });
+	fireEvent.click(node);
+	expect(onSelect).toHaveBeenCalledOnce();
+	rerender(<MemoryGraph nodes={nodes} edges={edges} selected="a" onSelect={onSelect} resetKey="node-drag" />);
+	expect(Number(node.querySelector("circle")?.getAttribute("cx"))).toBeCloseTo(60);
+	expect(Number(node.querySelector("circle")?.getAttribute("cy"))).toBeCloseTo(75);
+});
 
 it("zooms around the pointer even after panning", () => {
 	const { container } = render(<MemoryGraph nodes={[]} edges={[]} selected={null} onSelect={() => {}} resetKey="zoom" />);
