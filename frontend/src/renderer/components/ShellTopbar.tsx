@@ -110,7 +110,9 @@ export function ShellTopbar({
 	const currentSessionId = startingOrchestrator ? undefined : params.sessionId;
 	const boardActionsInPanel = usesBoardActionsInPanel();
 	const paddingLeft = useTopbarPaddingLeft(embedded);
-	const workspaceQuery = useWorkspaceScope(params.projectId, params.sessionId, hostId);
+	const memorySearch = location.search as { project?: unknown } | undefined;
+	const memoryProjectId = location.pathname === "/memory" && typeof memorySearch?.project === "string" ? memorySearch.project : undefined;
+	const workspaceQuery = useWorkspaceScope(memoryProjectId ?? params.projectId, params.sessionId, hostId);
 	const workspaceScope = workspaceQuery.data;
 	const session = startingOrchestrator ? undefined : workspaceScope?.session;
 	const isSessionRoute = startingOrchestrator || Boolean(params.sessionId);
@@ -194,7 +196,7 @@ export function ShellTopbar({
 						</span>
 					</div>
 				) : isMemoryRoute ? (
-					<div className="inline-flex min-w-0 items-center gap-1.5" data-testid="memory-topbar-label"><span className={cn(topbarProjectLabelClass, "inline-flex items-center gap-1.5")}><Network aria-hidden="true" className="size-icon-md" />{t("memory.title")}</span></div>
+					<div className="inline-flex min-w-0 items-center gap-1.5" data-testid="memory-topbar-label"><span className={cn(topbarProjectLabelClass, "inline-flex items-center gap-1.5")}><Network aria-hidden="true" className="size-icon-md" />{t("memory.title")}</span>{workspaceScope?.project?.name && <><span aria-hidden="true" className="text-muted-foreground">/</span><span className="truncate text-sm font-medium">{workspaceScope.project.name}</span></>}</div>
 				) : isArtifactsRoute ? (
 					<div className="inline-flex min-w-0 items-center gap-1.5" data-testid="artifacts-topbar-label">
 						<span className={cn(topbarProjectLabelClass, "inline-flex items-center gap-1.5")}>

@@ -25,7 +25,7 @@ function MemoryLoading({ label }: { label: string }) {
 	</div>;
 }
 
-export function MemoryView() {
+export function MemoryView({ initialProject, onProjectChange }: { initialProject?: string; onProjectChange?: (project: string) => void } = {}) {
 	const { t } = useTranslation();
 	const catalog = useQuery({ queryKey: ["memory", "catalog"], queryFn: async () => {
 		const [projects, sessions] = await Promise.all([apiClient.GET("/api/v1/projects"), apiClient.GET("/api/v1/sessions")]);
@@ -33,7 +33,7 @@ export function MemoryView() {
 		return (projects.data?.projects ?? []).filter((p) => p.path && !p.folderMissing).map((p) => ({ ...p, sessions: (sessions.data?.sessions ?? []).filter((s) => s.projectId === p.id).map((s) => ({ id: s.id, title: s.displayName || s.id })) }));
 	} });
 	const workspaces = catalog.data ?? [];
-	const [project, setProject] = useState("");
+	const [project, setProject] = useState(initialProject ?? "");
 	const [scope, setScope] = useState("project");
 	const [session, setSession] = useState("");
 	const [query, setQuery] = useState("");
@@ -47,7 +47,12 @@ export function MemoryView() {
 	const sessions = current?.sessions ?? [];
 	const valid = Boolean(project && (scope === "project" || (session && session !== "none")));
 	const key = JSON.stringify([project, scope, session, query, type, status]);
-	useEffect(() => { if (!project && workspaces.length) setProject(workspaces[0].id); }, [project, workspaces]);
+	useEffect(() => {
+		if (!project && workspaces.length) {
+			setProject(workspaces[0].id);
+			onProjectChange?.(workspaces[0].id);
+		}
+	}, [project, workspaces, onProjectChange]);
 	useEffect(() => {
 		setGraph(null); setSelected(null); setState("loading"); setError("");
 		if (!valid) return;
@@ -91,9 +96,9 @@ export function MemoryView() {
 	const statusOptions = [{ value: "proposed", label: t("memory.proposed") }, { value: "implemented_in_branch", label: t("memory.implementedInBranch") }, { value: "accepted", label: t("memory.accepted") }, { value: "legacy", label: t("memory.legacy") }];
 	function clear() { setSelected(null); setGraph(null); }
 	return <div className="flex min-h-0 flex-1 flex-col bg-background">
-		<header className="workspace-topbar-container center-panel-titlebar flex h-toolbar shrink-0 items-center border-b border-border-strong"><h1 className={hidesShellTopbar() ? "text-sm font-medium" : "sr-only"}>{t("memory.title")}</h1></header>
+		<header className="workspace-topbar-container center-panel-titlebar flex h-toolbar shrink-0 items-center border-b border-border-strong"><h1 className={hidesShellTopbar() ? "text-sm font-medium" : "sr-only"}>{t("memory.title")}{current ? ` / ${current.name}` : ""}</h1></header>
 		<div className="flex flex-wrap items-end gap-3 border-b border-border p-4">
-			<Field label={t("memory.project")} value={project || "none"} onChange={(v) => { clear(); setProject(v); setScope("project"); setSession(""); }} options={workspaces.length ? workspaces.map((w) => ({ value: w.id, label: w.name })) : [{ value: "none", label: t("memory.noLocalProjects") }]} />
+			<Field label={t("memory.project")} value={project || "none"} onChange={(v) => { clear(); setProject(v); setScope("project"); setSession(""); onProjectChange?.(v); }} options={workspaces.length ? workspaces.map((w) => ({ value: w.id, label: w.name })) : [{ value: "none", label: t("memory.noLocalProjects") }]} />
 			<Field label={t("memory.scope")} value={scope} onChange={(v) => { clear(); setScope(v); setSession(""); }} options={[{ value: "project", label: t("memory.project") }, { value: "worktree", label: t("memory.worktree") }, { value: "session", label: t("memory.session") }]} />
 			{scope !== "project" && <Field label={t("memory.sessionWorkspace")} value={session || "none"} onChange={(v) => { clear(); setSession(v); }} options={[{ value: "none", label: t("memory.selectSession") }, ...sessions.map((s) => ({ value: s.id, label: s.title }))]} />}
 			<label className="flex min-w-40 flex-1 flex-col gap-1 text-xs text-muted-foreground">{t("memory.search")}<Input aria-label={t("memory.searchPlaceholder")} value={query} onChange={(e) => { clear(); setQuery(e.target.value); }} placeholder={t("memory.searchPlaceholder")} /></label>

@@ -4,6 +4,32 @@ import { MemoryGraph } from "./MemoryGraph";
 
 afterEach(() => { localStorage.clear(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
+it("groups sources by local date, links dates in order, and collapses only that day's memories", () => {
+	const onSelect = vi.fn();
+	const { container } = render(<MemoryGraph resetKey="dates" selected={null} onSelect={onSelect} nodes={[
+		{ id: "a", source_id: "a", type: "source", label: "First", status: null, date: "2026-10-31" },
+		{ id: "b", source_id: "b", type: "source", label: "Second", status: null, date: "2026-10-31" },
+		{ id: "c", source_id: "c", type: "source", label: "Later", status: null, date: "2026-11-02" },
+		{ id: "unknown", source_id: "unknown", type: "source", label: "Undated", status: null },
+		{ id: "fact", source_id: "a", type: "proposition", label: "First fact", status: null },
+	]} edges={[{ id: "af", source: "a", target: "fact", type: "source_proposition" }]} />);
+	const group = screen.getByRole("button", { name: /^Date: .*2 memories$/ });
+	expect(group).toHaveAttribute("aria-expanded", "true");
+	expect(screen.getByRole("button", { name: "Date: Unknown date, 1 memories" })).toBeInTheDocument();
+	expect(container.querySelectorAll('line[data-edge-type="date_source"]')).toHaveLength(4);
+	expect(container.querySelectorAll('line[data-edge-type="date_next"]')).toHaveLength(1);
+	fireEvent.click(group);
+	expect(group).toHaveAttribute("aria-expanded", "false");
+	expect(screen.queryByRole("button", { name: "source: First" })).not.toBeInTheDocument();
+	expect(screen.queryByRole("button", { name: "proposition: First fact" })).not.toBeInTheDocument();
+	expect(screen.getByRole("button", { name: "source: Later" })).toBeInTheDocument();
+	expect(onSelect).not.toHaveBeenCalled();
+	fireEvent.click(group);
+	expect(screen.getByRole("button", { name: "source: First" })).toBeInTheDocument();
+	fireEvent.click(screen.getByRole("button", { name: "Original" }));
+	expect(screen.queryByRole("button", { name: /^Date:/ })).not.toBeInTheDocument();
+});
+
 it("plays the graph in chronological order and can be stopped or replayed", () => {
 	vi.useFakeTimers();
 	const { container } = render(<MemoryGraph resetKey="timeline" selected={null} onSelect={() => {}} nodes={[
@@ -12,6 +38,7 @@ it("plays the graph in chronological order and can be stopped or replayed", () =
 		{ id: "first", type: "source", label: "First", status: null, date: "2026-01-01" },
 		{ id: "middle", type: "entity", label: "Middle", status: null, date: "2026-01-15" },
 	]} edges={[{ id: "link", source: "first", target: "middle", type: "source_entity" }]} />);
+	fireEvent.click(screen.getByRole("button", { name: "Original" }));
 	fireEvent.click(screen.getByRole("button", { name: "Start animation" }));
 	expect(screen.queryByRole("button", { name: "source: First" })).not.toBeInTheDocument();
 	act(() => { vi.advanceTimersByTime(1500); });

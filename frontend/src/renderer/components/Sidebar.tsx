@@ -522,6 +522,7 @@ function useSelection() {
 	const goAutomations = useCallback(() => void navigate({ to: "/automations" }), [navigate]);
 	const goArtifacts = useCallback(() => void navigate({ to: "/artifacts" }), [navigate]);
 	const goMemory = useCallback(() => void navigate({ to: "/memory" }), [navigate]);
+	const goProjectMemory = useCallback((projectId: string) => void navigate({ to: "/memory", search: { project: projectId } }), [navigate]);
 	const goStandaloneBoard = useCallback(() => void navigate({ to: "/sessions" }), [navigate]);
 	const goGlobalSettings = useCallback(() => openGlobalSettings(), [openGlobalSettings]);
 	const goConnectMobile = useCallback(() => openGlobalSettings("mobile"), [openGlobalSettings]);
@@ -557,6 +558,7 @@ function useSelection() {
 		goAutomations,
 		goArtifacts,
 		goMemory,
+		goProjectMemory,
 		goStandaloneBoard,
 		// Settings is a modal — open it in place so the current page (session
 		// terminal, board, etc.) stays underneath.
@@ -565,7 +567,7 @@ function useSelection() {
 		goSettings,
 		goProject,
 		goSession,
-	}), [goArtifacts, goMemory, goAutomations, goConnectMobile, goGlobalSettings, goHome, goProject, goSession, goSettings, goStandaloneBoard, params.hostId, params.projectId, params.sessionId, pathname]);
+	}), [goArtifacts, goMemory, goProjectMemory, goAutomations, goConnectMobile, goGlobalSettings, goHome, goProject, goSession, goSettings, goStandaloneBoard, params.hostId, params.projectId, params.sessionId, pathname]);
 }
 
 // Colour tracks the session's board section, preserving SCM state while the
@@ -1412,7 +1414,7 @@ function projectItemPropsEqual(previous: ProjectItemProps, next: ProjectItemProp
 	const a = previous.selection;
 	const b = next.selection;
 	return a.goSession === b.goSession && a.goProject === b.goProject && a.goHome === b.goHome &&
-		a.goSettings === b.goSettings && projectSelectionKey(previous.workspace, a) === projectSelectionKey(next.workspace, b);
+		a.goSettings === b.goSettings && a.goProjectMemory === b.goProjectMemory && projectSelectionKey(previous.workspace, a) === projectSelectionKey(next.workspace, b);
 }
 
 const ProjectItem = memo(function ProjectItem({
@@ -1435,6 +1437,7 @@ const ProjectItem = memo(function ProjectItem({
 	const { t } = useTranslation();
 	const nameWithHost = hostLabel ? `${workspace.name} · ${hostLabel}` : workspace.name;
 	const isStandalone = workspace.id === STANDALONE_WORKSPACE_ID;
+	const canOpenMemory = !isStandalone && !workspace.hostId && workspace.kind !== CLOUD_PROJECT_KIND;
 	const prefersReducedMotion = useReducedMotion();
 	const activeProjectMatches = selection.activeProjectId === workspace.id;
 	const projectHeaderRef = useRef<HTMLDivElement>(null);
@@ -1885,6 +1888,10 @@ const ProjectItem = memo(function ProjectItem({
 													<Settings aria-hidden="true" />
 													{t("shell.projectSettings")}
 												</DropdownMenuItem>
+												{canOpenMemory && <DropdownMenuItem onSelect={() => selection.goProjectMemory(workspace.id)}>
+													<Network aria-hidden="true" />
+													{t("memory.projectMemory")}
+												</DropdownMenuItem>}
 												<DropdownMenuItem
 													className="text-destructive focus:text-destructive [&_svg]:text-destructive focus:[&_svg]:text-destructive"
 													disabled={isRemoving}
@@ -2005,6 +2012,10 @@ const ProjectItem = memo(function ProjectItem({
 				{!isStandalone && <ContextMenuItem onSelect={() => selection.goSettings(workspace.id, workspace.cloudOrgId)}>
 					<Settings aria-hidden="true" />
 					{t("shell.projectSettings")}
+				</ContextMenuItem>}
+				{canOpenMemory && <ContextMenuItem onSelect={() => selection.goProjectMemory(workspace.id)}>
+					<Network aria-hidden="true" />
+					{t("memory.projectMemory")}
 				</ContextMenuItem>}
 				{!isStandalone && <ContextMenuItem
 					className="text-destructive focus:text-destructive [&_svg]:text-destructive focus:[&_svg]:text-destructive"

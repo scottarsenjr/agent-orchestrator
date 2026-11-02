@@ -2978,6 +2978,7 @@
 	"memory.projectWorkspace": "Project repository workspace",
 	"memory.proposed": "Proposed",
 	"memory.proposition": "Proposition",
+	"memory.projectMemory": "Project memory",
 	"memory.providerUnavailable": "Memory provider is unavailable. Check the local configuration.",
 	"memory.readWorkspaceError": "Memory provider could not read this workspace.",
 	"memory.scope": "Scope",

@@ -19,7 +19,7 @@ import { sessionInterfaceTransitionQueryKey } from "../hooks/useSessionInterface
 import { sessionInterfaceTransitionStatus } from "../test/interface-transition-fixtures";
 
 const { locationMock, navigateMock, onKilledMock, paramsMock, postMock, spawnMock, useWorkspaceQueryMock } = vi.hoisted(() => ({
-	locationMock: { pathname: "/" },
+	locationMock: { pathname: "/", search: {} as { project?: string } },
 	navigateMock: vi.fn(),
 	onKilledMock: vi.fn(),
 	paramsMock: { hostId: undefined as string | undefined, projectId: undefined as string | undefined, sessionId: undefined as string | undefined },
@@ -40,12 +40,12 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 
 vi.mock("../hooks/useWorkspaceQuery", () => ({
 	useWorkspaceQuery: useWorkspaceQueryMock,
-	useWorkspaceScope: () => {
+	useWorkspaceScope: (projectId?: string, sessionId?: string) => {
 		const query = useWorkspaceQueryMock();
-		const project = query.data?.find((workspace: WorkspaceSummary) => workspace.id === paramsMock.projectId);
+		const project = query.data?.find((workspace: WorkspaceSummary) => workspace.id === projectId);
 		const session = query.data
 			?.flatMap((workspace: WorkspaceSummary) => workspace.sessions)
-			.find((candidate: WorkspaceSession) => candidate.id === paramsMock.sessionId);
+			.find((candidate: WorkspaceSession) => candidate.id === sessionId);
 		return {
 			...query,
 			data: {
@@ -206,6 +206,7 @@ async function clickKillDialogConfirm() {
 
 beforeEach(() => {
 	locationMock.pathname = "/";
+	locationMock.search = {};
 	navigateMock.mockReset();
 	onKilledMock.mockReset();
 	paramsMock.projectId = undefined;
@@ -233,6 +234,14 @@ describe("optimistic orchestrator topbar", () => {
 });
 
 describe("ShellTopbar route identity", () => {
+	it("shows the selected project's name in the memory breadcrumb", () => {
+		locationMock.pathname = "/memory";
+		locationMock.search = { project: "proj-1" };
+		useWorkspaceQueryMock.mockReturnValue({ data: [{ id: "proj-1", name: "Project One", sessions: [] }], isError: false, isLoading: false, isSuccess: true });
+		render(<QueryClientProvider client={new QueryClient()}><TooltipProvider><ShellTopbar /></TooltipProvider></QueryClientProvider>);
+		expect(screen.getByTestId("memory-topbar-label")).toHaveTextContent("Memory/Project One");
+	});
+
 	it("identifies the Automations route instead of presenting it as the board", () => {
 		locationMock.pathname = "/automations";
 		render(

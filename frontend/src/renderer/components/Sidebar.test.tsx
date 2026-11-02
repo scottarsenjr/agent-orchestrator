@@ -880,6 +880,25 @@ describe("Sidebar", () => {
 		}
 	});
 
+	it("opens the chosen project's memory from the project actions menu", async () => {
+		const user = userEvent.setup();
+		renderSidebar();
+		await user.click(screen.getByLabelText("Project actions for Project One"));
+		const items = await screen.findAllByRole("menuitem");
+		expect(items.map((item) => item.textContent)).toContain("Project memory");
+		expect(items.findIndex((item) => item.textContent === "Project memory")).toBe(items.findIndex((item) => item.textContent === "Project settings") + 1);
+		await user.click(screen.getByRole("menuitem", { name: "Project memory" }));
+		expect(navigateMock).toHaveBeenCalledWith({ to: "/memory", search: { project: "proj-1" } });
+	});
+
+	it("opens the chosen project's memory from the right-click menu", async () => {
+		const user = userEvent.setup();
+		renderSidebar();
+		fireEvent.contextMenu(screen.getByLabelText("Project actions for Project One").closest("li")!);
+		await user.click(await screen.findByRole("menuitem", { name: "Project memory" }));
+		expect(navigateMock).toHaveBeenCalledWith({ to: "/memory", search: { project: "proj-1" } });
+	});
+
 	it("shows a ConfirmDialog and calls onRemoveProject when confirmed", async () => {
 		const user = userEvent.setup();
 		const onRemoveProject = renderSidebar();

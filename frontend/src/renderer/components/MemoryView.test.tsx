@@ -6,9 +6,19 @@ import { afterEach, expect, it, vi } from "vitest";
 import { createFullAppI18n } from "../i18n/all-messages";
 import { MemoryView } from "./MemoryView";
 
-vi.mock("../lib/api-client", () => ({ getApiBaseUrl: () => "http://localhost", apiClient: { GET: async (path: string) => path.endsWith("projects") ? { data: { projects: [{ id: "p", name: "Project", path: "/project" }] } } : { data: { sessions: [] } } } }));
+vi.mock("../lib/api-client", () => ({ getApiBaseUrl: () => "http://localhost", apiClient: { GET: async (path: string) => path.endsWith("projects") ? { data: { projects: [{ id: "p", name: "Project", path: "/project" }, { id: "q", name: "Other Project", path: "/other" }] } } : { data: { sessions: [] } } } }));
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+it("loads only the requested project when opened from a project action", async () => {
+	const fetchMock = vi.fn(async (_url: string) => ({ ok: true, json: async () => ({ visibility_token: "v", context: { branch: "main", dirty: false }, nodes: [], edges: [], counts: { visible: 0, returned: 0 }, truncated: false, empty_reason: "no_visible_memory", errors: [] }) }));
+	vi.stubGlobal("fetch", fetchMock);
+	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+	render(<QueryClientProvider client={client}><MemoryView initialProject="q" /></QueryClientProvider>);
+	await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+	expect(String(fetchMock.mock.calls[0][0])).toContain("projectId=q");
+	expect(screen.getByRole("heading", { name: "Memory / Other Project", hidden: true })).toBeInTheDocument();
+});
 
 it("shows an accessible loading state while the project graph is pending", async () => {
 	vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
