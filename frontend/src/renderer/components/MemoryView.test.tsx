@@ -108,3 +108,19 @@ it("shows translated known status and readable unknown status in details", async
 	await user.click(screen.getByRole("button", { name: "proposition: Future claim" }));
 	expect(within(details).getByText("future status")).toBeInTheDocument();
 });
+
+it("resets an offscreen graph viewport when search changes", async () => {
+	const graph = { visibility_token: "v1", context: { branch: "main", dirty: false }, nodes: [{ id: "old", type: "source", label: "Old source", content: "Old detail", status: null, provenance: {} }], edges: [], counts: { visible: 1, returned: 1 }, truncated: false, empty_reason: null, errors: [] };
+	vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, json: async () => url.includes("query=other") ? { ...graph, nodes: [{ ...graph.nodes[0], id: "new", label: "Other source" }] } : graph })));
+	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+	render(<QueryClientProvider client={client}><MemoryView /></QueryClientProvider>);
+	const canvas = await screen.findByLabelText("Memory graph canvas; use arrow keys to pan");
+	await waitFor(() => expect(canvas.getAttribute("viewBox")?.split(" ")[2]).toBe("180"));
+	const initialViewBox = canvas.getAttribute("viewBox");
+	await userEvent.setup().click(screen.getByRole("button", { name: "Zoom in" }));
+	for (let i = 0; i < 4; i++) fireEvent.keyDown(canvas, { key: "ArrowRight" });
+	await waitFor(() => expect(Number(canvas.getAttribute("viewBox")?.split(" ")[0])).toBeGreaterThan(90));
+	await userEvent.setup().type(screen.getByRole("textbox", { name: "Search memory" }), "other");
+	expect(await screen.findByRole("button", { name: "source: Other source" })).toBeInTheDocument();
+	expect(screen.getByLabelText("Memory graph canvas; use arrow keys to pan").getAttribute("viewBox")).toBe(initialViewBox);
+});

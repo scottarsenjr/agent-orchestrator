@@ -80,6 +80,39 @@ func TestBuild_MatchesEmbedded(t *testing.T) {
 	}
 }
 
+func TestBuild_MemoryGraphDocumentsProviderFailures(t *testing.T) {
+	got, err := specgen.Build()
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	type response struct {
+		Content map[string]struct {
+			Schema openAPISchemaNode `yaml:"schema"`
+		} `yaml:"content"`
+	}
+	var doc struct {
+		Paths map[string]struct {
+			Get struct {
+				Responses map[string]response `yaml:"responses"`
+			} `yaml:"get"`
+		} `yaml:"paths"`
+	}
+	if err := yaml.Unmarshal(got, &doc); err != nil {
+		t.Fatalf("parse generated OpenAPI: %v", err)
+	}
+	responses := doc.Paths["/api/v1/memory/graph"].Get.Responses
+	for _, status := range []string{"502", "503"} {
+		resp, ok := responses[status]
+		if !ok {
+			t.Errorf("Memory graph response %s is missing", status)
+			continue
+		}
+		if ref := resp.Content["application/json"].Schema.Ref; ref != "#/components/schemas/APIError" {
+			t.Errorf("Memory graph response %s schema = %q, want APIError", status, ref)
+		}
+	}
+}
+
 func TestBuild_TelemetryIdentityUsesNamedSchema(t *testing.T) {
 	got, err := specgen.Build()
 	if err != nil {

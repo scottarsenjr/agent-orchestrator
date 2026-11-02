@@ -772,7 +772,7 @@ func automationOperations() []operation {
 		{http.StatusNotImplemented, envelope.APIError{}},
 	}
 	return []operation{
-		{method: http.MethodGet, path: "/api/v1/memory/graph", id: "getMemoryGraph", tag: "memory", summary: "Read scoped memory graph", pathParams: []any{controllers.MemoryQuery{}}, resps: append([]respUnit{{http.StatusOK, controllers.MemoryGraph{}}}, commonErrors...)},
+		{method: http.MethodGet, path: "/api/v1/memory/graph", id: "getMemoryGraph", tag: "memory", summary: "Read scoped memory graph", pathParams: []any{controllers.MemoryQuery{}}, resps: append([]respUnit{{http.StatusOK, controllers.MemoryGraph{}}, {http.StatusBadGateway, envelope.APIError{}}, {http.StatusServiceUnavailable, envelope.APIError{}}}, commonErrors...)},
 		{method: http.MethodGet, path: "/api/v1/automations", id: "listAutomations", tag: "automations", summary: "List recurring automations", pathParams: []any{controllers.ListAutomationsQuery{}}, resps: append([]respUnit{{http.StatusOK, controllers.ListAutomationsResponse{}}}, commonErrors...)},
 		{method: http.MethodPost, path: "/api/v1/automations", id: "createAutomation", tag: "automations", summary: "Create a recurring automation", reqBody: controllers.CreateAutomationRequest{}, resps: append([]respUnit{{http.StatusCreated, controllers.AutomationEnvelope{}}}, commonErrors...)},
 		{method: http.MethodGet, path: "/api/v1/automations/{automationId}", id: "getAutomation", tag: "automations", summary: "Get one recurring automation", pathParams: id, resps: append([]respUnit{{http.StatusOK, controllers.AutomationEnvelope{}}}, commonErrors...)},
