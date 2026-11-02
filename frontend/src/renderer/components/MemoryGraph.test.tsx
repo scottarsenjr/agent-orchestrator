@@ -2,7 +2,33 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, expect, it, vi } from "vitest";
 import { MemoryGraph } from "./MemoryGraph";
 
-afterEach(() => { localStorage.clear(); vi.unstubAllGlobals(); });
+afterEach(() => { localStorage.clear(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+
+it("plays the graph in chronological order and can be stopped or replayed", () => {
+	vi.useFakeTimers();
+	const { container } = render(<MemoryGraph resetKey="timeline" selected={null} onSelect={() => {}} nodes={[
+		{ id: "later", type: "source", label: "Later", status: null, date: "2026-02-01" },
+		{ id: "unknown", type: "source", label: "Undated", status: null },
+		{ id: "first", type: "source", label: "First", status: null, date: "2026-01-01" },
+		{ id: "middle", type: "entity", label: "Middle", status: null, date: "2026-01-15" },
+	]} edges={[{ id: "link", source: "first", target: "middle", type: "source_entity" }]} />);
+	fireEvent.click(screen.getByRole("button", { name: "Start animation" }));
+	expect(screen.queryByRole("button", { name: "source: First" })).not.toBeInTheDocument();
+	act(() => { vi.advanceTimersByTime(1500); });
+	expect(screen.getByRole("button", { name: "source: First" })).toBeInTheDocument();
+	expect(screen.queryByRole("button", { name: "entity: Middle" })).not.toBeInTheDocument();
+	expect(container.querySelector("line")).toBeNull();
+	act(() => { vi.advanceTimersByTime(1500); });
+	expect(screen.getByRole("button", { name: "entity: Middle" })).toBeInTheDocument();
+	expect(container.querySelector("line")).not.toBeNull();
+	fireEvent.click(screen.getByRole("button", { name: "Stop animation" }));
+	expect(screen.getByRole("button", { name: "source: Undated" })).toBeInTheDocument();
+	fireEvent.click(screen.getByRole("button", { name: "Start animation" }));
+	act(() => { vi.advanceTimersByTime(6000); });
+	expect(screen.getByRole("button", { name: "source: Later" })).toBeInTheDocument();
+	expect(screen.getByRole("button", { name: "source: Undated" })).toBeInTheDocument();
+	expect(screen.getByRole("button", { name: "Start animation" })).toBeInTheDocument();
+});
 
 it("keeps a dragged node at its new position without selecting it, while a click still selects it", async () => {
 	vi.stubGlobal("PointerEvent", MouseEvent);
@@ -15,9 +41,12 @@ it("keeps a dragged node at its new position without selecting it, while a click
 	Object.defineProperty(svg, "createSVGPoint", { value: () => ({ x: 0, y: 0, matrixTransform() { return { x: this.x, y: this.y }; } }) });
 	const node = screen.getByRole("button", { name: "source: Note" });
 	Object.defineProperty(node, "setPointerCapture", { value: vi.fn() });
+	fireEvent.pointerEnter(node);
+	fireEvent.focus(node);
 	fireEvent.pointerDown(node, { clientX: 10, clientY: 10, button: 0 });
 	fireEvent.pointerMove(node, { clientX: 60, clientY: 75, buttons: 1 });
 	fireEvent.pointerUp(node, { clientX: 60, clientY: 75 });
+	expect(node.querySelector("circle")).toHaveAttribute("stroke", "none");
 	fireEvent.click(node);
 	expect(onSelect).not.toHaveBeenCalled();
 	await waitFor(() => { expect(Number(node.querySelector("circle")?.getAttribute("cx"))).toBeCloseTo(60); expect(Number(node.querySelector("circle")?.getAttribute("cy"))).toBeCloseTo(75); });

@@ -2,7 +2,7 @@ import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, f
 import { useEffect, useMemo, useRef, useState, type SetStateAction, type Dispatch, type PointerEvent } from "react";
 import { Maximize2, Minus, Plus, Settings2 } from "lucide-react";
 
-export type MemoryGraphNode = { id: string; type: string; label: string; status: string | null };
+export type MemoryGraphNode = { id: string; type: string; label: string; status: string | null; date?: string | null };
 export type MemoryGraphEdge = { id: string; source: string; target: string; type: string };
 type Point = MemoryGraphNode & SimulationNodeDatum;
 type Group = { id: string; query: string; color: string };
@@ -52,7 +52,8 @@ export function MemoryGraph({ nodes, edges, selected, onSelect, resetKey, projec
 	const [linkStrength, setLinkStrength] = useGraphSetting(project, "linkStrength", 0.5);
 	const [distance, setDistance] = useGraphSetting(project, "distance", 55);
 	const [settings, setSettings] = useState(true);
-	const [animation, setAnimation] = useState(0);
+	const [animating, setAnimating] = useState(false);
+	const [revealed, setRevealed] = useState(0);
 	const [width, setWidth] = useState(600);
 	const [height, setHeight] = useState(500);
 	const [view, setView] = useState({ x: 0, y: 0, scale: 1 });
@@ -69,15 +70,33 @@ export function MemoryGraph({ nodes, edges, selected, onSelect, resetKey, projec
 	const visible = useMemo(() => showOrphans ? nodes : nodes.filter((node) => connected.has(node.id)), [nodes, connected, showOrphans]);
 	const visibleIds = useMemo(() => new Set(visible.map((node) => node.id)), [visible]);
 	const visibleEdges = useMemo(() => edges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target)), [edges, visibleIds]);
+	const orderedIds = useMemo(() => [...visible].sort((a, b) => {
+		const aTime = a.date ? Date.parse(a.date) : NaN, bTime = b.date ? Date.parse(b.date) : NaN;
+		return (Number.isFinite(aTime) ? aTime : Infinity) - (Number.isFinite(bTime) ? bTime : Infinity) || a.id.localeCompare(b.id);
+	}).map((node) => node.id), [visible]);
+	const displayedIds = useMemo(() => animating ? new Set(orderedIds.slice(0, revealed)) : visibleIds, [animating, orderedIds, revealed, visibleIds]);
+	const displayedNodes = useMemo(() => visible.filter((node) => displayedIds.has(node.id)), [visible, displayedIds]);
+	const displayedEdges = useMemo(() => visibleEdges.filter((edge) => displayedIds.has(edge.source) && displayedIds.has(edge.target)), [visibleEdges, displayedIds]);
 	const degree = useMemo(() => { const counts = new Map<string, number>(); for (const edge of visibleEdges) { counts.set(edge.source, (counts.get(edge.source) ?? 0) + 1); counts.set(edge.target, (counts.get(edge.target) ?? 0) + 1); } return counts; }, [visibleEdges]);
-	const active = hovered && visibleIds.has(hovered) ? hovered : focused && visibleIds.has(focused) ? focused : null;
+	const active = hovered && displayedIds.has(hovered) ? hovered : focused && displayedIds.has(focused) ? focused : null;
 	const neighbors = useMemo(() => {
 		const ids = new Set<string>();
-		if (active) { ids.add(active); for (const edge of visibleEdges) { if (edge.source === active) ids.add(edge.target); if (edge.target === active) ids.add(edge.source); } }
+		if (active) { ids.add(active); for (const edge of displayedEdges) { if (edge.source === active) ids.add(edge.target); if (edge.target === active) ids.add(edge.source); } }
 		return ids;
-	}, [active, visibleEdges]);
+	}, [active, displayedEdges]);
 	useEffect(() => { setView({ x: 0, y: 0, scale: 1 }); }, [resetKey]);
 	useEffect(() => { setHovered(null); setFocused(null); }, [resetKey]);
+	useEffect(() => { setAnimating(false); }, [resetKey]);
+	useEffect(() => {
+		if (!animating) return;
+		const start = Date.now(), duration = 6000;
+		const timer = window.setInterval(() => {
+			const progress = Math.min(1, (Date.now() - start) / duration);
+			setRevealed(Math.ceil(progress * orderedIds.length));
+			if (progress >= 1) setAnimating(false);
+		}, 50);
+		return () => window.clearInterval(timer);
+	}, [animating, orderedIds]);
 	useEffect(() => {
 		const element = canvas.current; if (!element) return;
 		const resize = () => { setWidth(Math.max(180, element.clientWidth)); setHeight(Math.max(300, element.clientHeight)); };
@@ -118,7 +137,7 @@ export function MemoryGraph({ nodes, edges, selected, onSelect, resetKey, projec
 		const update = () => setPositions(new Map(points.map((point) => [point.id, { x: point.x ?? width / 2, y: point.y ?? height / 2 }])));
 		simulation.tick(30); update(); simulation.on("tick", update);
 		return () => { simulation.stop(); if (simulationRef.current === simulation) simulationRef.current = null; };
-	}, [visible, visibleEdges, degree, width, height, distance, linkStrength, repulsion, attraction, nodeSize, animation]);
+	}, [visible, visibleEdges, degree, width, height, distance, linkStrength, repulsion, attraction, nodeSize]);
 	const updateGroup = (id: string, change: Partial<Group>) => setGroups((all) => all.map((group) => group.id === id ? { ...group, ...change } : group));
 	const moveNode = (event: PointerEvent<SVGGElement>, id: string) => {
 		const svg = event.currentTarget.ownerSVGElement;
@@ -140,7 +159,8 @@ export function MemoryGraph({ nodes, edges, selected, onSelect, resetKey, projec
 	};
 	const dragNode = (event: PointerEvent<SVGGElement>, id: string) => {
 		const gesture = nodeDrag.current;
-		if (!gesture || gesture.id !== id) return;
+		if (!gesture) { if (event.buttons === 0) setHovered(id); return; }
+		if (gesture.id !== id) return;
 		if (!gesture.moved && Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) < 5) return;
 		gesture.moved = true;
 		moveNode(event, id);
@@ -163,15 +183,15 @@ export function MemoryGraph({ nodes, edges, selected, onSelect, resetKey, projec
 	return <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-[#171717]" ref={canvas} aria-label="Memory graph">
 		<svg ref={svgRef} className="h-full w-full touch-none" viewBox={`${view.x} ${view.y} ${width / view.scale} ${height / view.scale}`} tabIndex={0} aria-label="Memory graph canvas; use arrow keys to pan" onKeyDown={(event) => { const step = 40 / view.scale; if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) { event.preventDefault(); setView((v) => ({ ...v, x: v.x + (event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0), y: v.y + (event.key === "ArrowDown" ? step : event.key === "ArrowUp" ? -step : 0) })); } }} onPointerDown={(event) => { if (event.target === event.currentTarget) { drag.current = { x: event.clientX, y: event.clientY, originX: view.x, originY: view.y }; event.currentTarget.setPointerCapture(event.pointerId); } }} onPointerMove={pan} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}>
 			<defs><marker id="memory-arrow" viewBox="0 0 10 10" refX="12" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8e8e94" /></marker></defs>
-			{visibleEdges.map((edge) => { const a = positions.get(edge.source), b = positions.get(edge.target); const highlighted = active && (edge.source === active || edge.target === active); return a && b ? <line key={edge.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={highlighted ? "#c4b5fd" : "#68686c"} strokeOpacity={active ? (highlighted ? .95 : .12) : .48} strokeWidth={highlighted ? lineSize * 1.5 : lineSize} markerEnd={directions ? "url(#memory-arrow)" : undefined} /> : null; })}
-			{visible.map((node) => {
+			{displayedEdges.map((edge) => { const a = positions.get(edge.source), b = positions.get(edge.target); const highlighted = active && (edge.source === active || edge.target === active); return a && b ? <line key={edge.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={highlighted ? "#c4b5fd" : "#68686c"} strokeOpacity={active ? (highlighted ? .95 : .12) : .48} strokeWidth={highlighted ? lineSize * 1.5 : lineSize} markerEnd={directions ? "url(#memory-arrow)" : undefined} /> : null; })}
+			{displayedNodes.map((node) => {
 				const p = positions.get(node.id) ?? { x: width / 2, y: height / 2 };
 				const radius = Math.min(12, (2.2 + Math.sqrt(degree.get(node.id) ?? 0)) * nodeSize);
 				const color = groups.find((group) => groupMatches(node, group.query))?.color ?? "#aaaab0";
 				const isActive = active === node.id;
 				return <g key={node.id} role="button" tabIndex={0} aria-label={`${node.type}: ${node.label}`} className="cursor-pointer outline-none" opacity={active && !neighbors.has(node.id) ? .2 : 1}
 					onPointerEnter={() => setHovered(node.id)} onPointerLeave={() => setHovered((id) => id === node.id ? null : id)} onFocus={() => setFocused(node.id)} onBlur={() => setFocused((id) => id === node.id ? null : id)}
-					onPointerDown={(event) => { if (event.button !== 0) return; event.stopPropagation(); suppressClick.current = false; const point = simulationRef.current?.nodes().find((item) => item.id === node.id); nodeDrag.current = { id: node.id, x: event.clientX, y: event.clientY, moved: false, initialFx: point?.fx, initialFy: point?.fy }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => dragNode(event, node.id)} onPointerUp={() => releaseNode(node.id)} onPointerCancel={() => releaseNode(node.id, true)} onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } onSelect(node.id); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(node.id); } }}>
+					onPointerDown={(event) => { if (event.button !== 0) return; event.stopPropagation(); suppressClick.current = false; const point = simulationRef.current?.nodes().find((item) => item.id === node.id); nodeDrag.current = { id: node.id, x: event.clientX, y: event.clientY, moved: false, initialFx: point?.fx, initialFy: point?.fy }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => dragNode(event, node.id)} onPointerUp={(event) => { const moved = nodeDrag.current?.id === node.id && nodeDrag.current.moved; releaseNode(node.id); if (moved) { setHovered(null); setFocused(null); event.currentTarget.blur(); } }} onPointerCancel={(event) => { releaseNode(node.id, true); setHovered(null); setFocused(null); event.currentTarget.blur(); }} onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } onSelect(node.id); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(node.id); } }}>
 					<circle cx={p.x} cy={p.y} r={isActive ? radius * 1.4 : radius} fill={color} stroke={isActive || selected === node.id ? "white" : "none"} strokeWidth={isActive ? 2.5 : 2} />
 					<circle cx={p.x} cy={p.y} r={Math.max(radius, 8 / view.scale)} fill="transparent" aria-hidden="true" />
 					<title>{node.label}</title>
@@ -183,7 +203,7 @@ export function MemoryGraph({ nodes, edges, selected, onSelect, resetKey, projec
 		{settings && <div role="region" aria-label="Graph settings" className="absolute right-3 top-3 max-h-[calc(100%-1.5rem)] w-60 overflow-y-auto rounded-lg border border-[#39393c] bg-[#252525] text-[#dadada] shadow-xl">
 			<details open className="border-b border-[#383838] p-3"><summary className="cursor-pointer text-xs font-semibold">Filters</summary><label className="mt-4 flex items-center justify-between text-xs">Orphan nodes<input aria-label="Orphan nodes" type="checkbox" checked={showOrphans} onChange={(event) => setShowOrphans(event.target.checked)} className="accent-violet-500" /></label></details>
 			<details open className="border-b border-[#383838] p-3"><summary className="cursor-pointer text-xs font-semibold">Groups</summary><p className="mt-3 text-[10px] text-[#999]">Match label, type: or status:</p><div className="mt-2 space-y-1">{groups.map((group) => <div key={group.id} className="flex items-center gap-1"><input aria-label="Group query" className="min-w-0 flex-1 rounded border border-[#404043] bg-[#303033] px-2 py-1 text-xs" value={group.query} onChange={(event) => updateGroup(group.id, { query: event.target.value })} /><input aria-label="Group color" type="color" className="h-6 w-6 cursor-pointer border-0 bg-transparent" value={group.color} onChange={(event) => updateGroup(group.id, { color: event.target.value })} /><button aria-label="Remove group" className="px-1 text-[#aaa]" onClick={() => setGroups((all) => all.filter((item) => item.id !== group.id))}>×</button></div>)}</div><button className="mt-2 w-full rounded border border-[#444] bg-[#333] py-1 text-xs" onClick={() => setGroups((all) => [...all, { id: `${Date.now()}-${all.length}`, query: "", color: "#ffca55" }])}>New group</button></details>
-			<details open className="border-b border-[#383838] p-3"><summary className="cursor-pointer text-xs font-semibold">Display</summary><label className="mt-3 flex items-center justify-between text-xs">Arrows<input aria-label="Arrows" type="checkbox" checked={directions} onChange={(event) => setDirections(event.target.checked)} className="accent-violet-500" /></label><Slider label="Text fade threshold" value={textThreshold} min={0.2} max={4} step={0.1} onChange={setTextThreshold} /><Slider label="Node size" value={nodeSize} min={0.4} max={3} step={0.05} onChange={setNodeSize} /><Slider label="Line thickness" value={lineSize} min={0.1} max={3} step={0.05} onChange={setLineSize} /><button className="mt-2 w-full rounded border border-[#444] bg-[#333] py-1 text-xs" onClick={() => setAnimation((v) => v + 1)}>Start animation</button></details>
+			<details open className="border-b border-[#383838] p-3"><summary className="cursor-pointer text-xs font-semibold">Display</summary><label className="mt-3 flex items-center justify-between text-xs">Arrows<input aria-label="Arrows" type="checkbox" checked={directions} onChange={(event) => setDirections(event.target.checked)} className="accent-violet-500" /></label><Slider label="Text fade threshold" value={textThreshold} min={0.2} max={4} step={0.1} onChange={setTextThreshold} /><Slider label="Node size" value={nodeSize} min={0.4} max={3} step={0.05} onChange={setNodeSize} /><Slider label="Line thickness" value={lineSize} min={0.1} max={3} step={0.05} onChange={setLineSize} /><button className="mt-2 w-full rounded border border-[#444] bg-[#333] py-1 text-xs" disabled={orderedIds.length === 0} onClick={() => { if (animating) setAnimating(false); else { setHovered(null); setFocused(null); setRevealed(0); setAnimating(true); } }}>{animating ? "Stop animation" : "Start animation"}</button></details>
 			<details open className="p-3"><summary className="cursor-pointer text-xs font-semibold">Forces</summary><Slider label="Center force" value={attraction} min={0} max={1} step={0.05} onChange={setAttraction} /><Slider label="Repulsion" value={repulsion} min={0} max={300} step={1} onChange={setRepulsion} /><Slider label="Link force" value={linkStrength} min={0} max={1} step={0.05} onChange={setLinkStrength} /><Slider label="Link distance" value={distance} min={10} max={200} step={1} onChange={setDistance} /></details>
 		</div>}
 	</div>;
