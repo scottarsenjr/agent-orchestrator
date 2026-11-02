@@ -1786,15 +1786,16 @@ func TestStartAndResumePassAOToolServersInThreadConfig(t *testing.T) {
 	for _, method := range []string{"thread/start", "thread/resume"} {
 		t.Run(method, func(t *testing.T) {
 			d, srv := newTestDriver(t)
+			workspace := t.TempDir()
 			var conv ports.ChatConversation
 			var err error
 			if method == "thread/start" {
 				conv, err = d.Start(context.Background(), ports.ChatStartConfig{
-					SessionID: "ao-1", WorkspacePath: "/tmp/ws", Effort: "high", MCPServers: servers,
+					SessionID: "ao-1", WorkspacePath: workspace, Effort: "high", MCPServers: servers,
 				})
 			} else {
 				conv, err = d.Resume(context.Background(), ports.ChatResumeConfig{
-					SessionID: "ao-1", ProviderConversationID: "thread-1", WorkspacePath: "/tmp/ws", Effort: "high", MCPServers: servers,
+					SessionID: "ao-1", ProviderConversationID: "thread-1", WorkspacePath: workspace, Effort: "high", MCPServers: servers,
 				})
 			}
 			if err != nil {
