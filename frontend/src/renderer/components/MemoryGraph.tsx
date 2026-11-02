@@ -56,8 +56,11 @@ export function MemoryGraph({ nodes, edges, selected, onSelect, resetKey, projec
 	const [width, setWidth] = useState(600);
 	const [height, setHeight] = useState(500);
 	const [view, setView] = useState({ x: 0, y: 0, scale: 1 });
+	const [hovered, setHovered] = useState<string | null>(null);
+	const [focused, setFocused] = useState<string | null>(null);
 	const [positions, setPositions] = useState<Map<string, { x: number; y: number }>>(new Map());
 	const canvas = useRef<HTMLDivElement>(null);
+	const svgRef = useRef<SVGSVGElement>(null);
 	const drag = useRef<{ x: number; y: number; originX: number; originY: number } | null>(null);
 	const simulationRef = useRef<ReturnType<typeof forceSimulation<Point>> | null>(null);
 	const connected = useMemo(() => new Set(edges.flatMap((edge) => [edge.source, edge.target])), [edges]);
@@ -65,13 +68,40 @@ export function MemoryGraph({ nodes, edges, selected, onSelect, resetKey, projec
 	const visibleIds = useMemo(() => new Set(visible.map((node) => node.id)), [visible]);
 	const visibleEdges = useMemo(() => edges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target)), [edges, visibleIds]);
 	const degree = useMemo(() => { const counts = new Map<string, number>(); for (const edge of visibleEdges) { counts.set(edge.source, (counts.get(edge.source) ?? 0) + 1); counts.set(edge.target, (counts.get(edge.target) ?? 0) + 1); } return counts; }, [visibleEdges]);
+	const active = hovered && visibleIds.has(hovered) ? hovered : focused && visibleIds.has(focused) ? focused : null;
+	const neighbors = useMemo(() => {
+		const ids = new Set<string>();
+		if (active) { ids.add(active); for (const edge of visibleEdges) { if (edge.source === active) ids.add(edge.target); if (edge.target === active) ids.add(edge.source); } }
+		return ids;
+	}, [active, visibleEdges]);
 	useEffect(() => { setView({ x: 0, y: 0, scale: 1 }); }, [resetKey]);
+	useEffect(() => { setHovered(null); setFocused(null); }, [resetKey]);
 	useEffect(() => {
 		const element = canvas.current; if (!element) return;
 		const resize = () => { setWidth(Math.max(180, element.clientWidth)); setHeight(Math.max(300, element.clientHeight)); };
 		resize(); if (typeof ResizeObserver === "undefined") return;
 		const observer = new ResizeObserver(resize); observer.observe(element); return () => observer.disconnect();
 	}, []);
+	useEffect(() => {
+		const svg = svgRef.current; if (!svg) return;
+		const wheel = (event: WheelEvent) => {
+			event.preventDefault();
+			const rect = svg.getBoundingClientRect();
+			if (!rect.width || !rect.height) return;
+			// The viewBox and SVG can have different aspect ratios in a narrow pane.
+			const screenScale = Math.min(rect.width / width, rect.height / height);
+			const px = (event.clientX - rect.left - (rect.width - width * screenScale) / 2) / screenScale;
+			const py = (event.clientY - rect.top - (rect.height - height * screenScale) / 2) / screenScale;
+			const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? rect.height : 1);
+			const factor = Math.exp(-Math.max(-400, Math.min(400, delta)) * .0015);
+			setView((current) => {
+				const scale = Math.max(.2, Math.min(5, current.scale * factor));
+				return { x: current.x + px / current.scale - px / scale, y: current.y + py / current.scale - py / scale, scale };
+			});
+		};
+		svg.addEventListener("wheel", wheel, { passive: false });
+		return () => svg.removeEventListener("wheel", wheel);
+	}, [width, height]);
 	useEffect(() => {
 		const points: Point[] = visible.map((node) => ({ ...node }));
 		const links = visibleEdges.map((edge) => ({ source: edge.source, target: edge.target }));
@@ -119,10 +149,23 @@ export function MemoryGraph({ nodes, edges, selected, onSelect, resetKey, projec
 		setView({ x: left, y: top, scale });
 	};
 	return <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-[#171717]" ref={canvas} aria-label="Memory graph">
-		<svg className="h-full w-full touch-none" viewBox={`${view.x} ${view.y} ${width / view.scale} ${height / view.scale}`} tabIndex={0} aria-label="Memory graph canvas; use arrow keys to pan" onWheel={(event) => { event.preventDefault(); setView((v) => ({ ...v, scale: Math.max(.2, Math.min(5, v.scale * (event.deltaY < 0 ? 1.12 : .89))) })); }} onKeyDown={(event) => { const step = 40 / view.scale; if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) { event.preventDefault(); setView((v) => ({ ...v, x: v.x + (event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0), y: v.y + (event.key === "ArrowDown" ? step : event.key === "ArrowUp" ? -step : 0) })); } }} onPointerDown={(event) => { if (event.target === event.currentTarget) { drag.current = { x: event.clientX, y: event.clientY, originX: view.x, originY: view.y }; event.currentTarget.setPointerCapture(event.pointerId); } }} onPointerMove={pan} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}>
+		<svg ref={svgRef} className="h-full w-full touch-none" viewBox={`${view.x} ${view.y} ${width / view.scale} ${height / view.scale}`} tabIndex={0} aria-label="Memory graph canvas; use arrow keys to pan" onKeyDown={(event) => { const step = 40 / view.scale; if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) { event.preventDefault(); setView((v) => ({ ...v, x: v.x + (event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0), y: v.y + (event.key === "ArrowDown" ? step : event.key === "ArrowUp" ? -step : 0) })); } }} onPointerDown={(event) => { if (event.target === event.currentTarget) { drag.current = { x: event.clientX, y: event.clientY, originX: view.x, originY: view.y }; event.currentTarget.setPointerCapture(event.pointerId); } }} onPointerMove={pan} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}>
 			<defs><marker id="memory-arrow" viewBox="0 0 10 10" refX="12" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8e8e94" /></marker></defs>
-			{visibleEdges.map((edge) => { const a = positions.get(edge.source), b = positions.get(edge.target); return a && b ? <line key={edge.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#68686c" strokeOpacity=".48" strokeWidth={lineSize} markerEnd={directions ? "url(#memory-arrow)" : undefined} /> : null; })}
-			{visible.map((node) => { const p = positions.get(node.id) ?? { x: width / 2, y: height / 2 }; const radius = Math.min(12, (2.2 + Math.sqrt(degree.get(node.id) ?? 0)) * nodeSize); const color = groups.find((group) => groupMatches(node, group.query))?.color ?? "#aaaab0"; return <g key={node.id} role="button" tabIndex={0} aria-label={`${node.type}: ${node.label}`} className="cursor-pointer outline-none" onPointerDown={(event) => { event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); moveNode(event, node.id); }} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) moveNode(event, node.id); }} onPointerUp={() => releaseNode(node.id)} onPointerCancel={() => releaseNode(node.id)} onClick={() => onSelect(node.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(node.id); } }}><circle cx={p.x} cy={p.y} r={radius} fill={color} stroke={selected === node.id ? "white" : "none"} strokeWidth="2" /><title>{node.label}</title>{(view.scale >= textThreshold || selected === node.id) && <text x={p.x} y={p.y + radius + 13} textAnchor="middle" fill="#bbb" fontSize="10">{node.label.length > 48 ? `${node.label.slice(0, 47)}…` : node.label}</text>}</g>; })}
+			{visibleEdges.map((edge) => { const a = positions.get(edge.source), b = positions.get(edge.target); const highlighted = active && (edge.source === active || edge.target === active); return a && b ? <line key={edge.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={highlighted ? "#c4b5fd" : "#68686c"} strokeOpacity={active ? (highlighted ? .95 : .12) : .48} strokeWidth={highlighted ? lineSize * 1.5 : lineSize} markerEnd={directions ? "url(#memory-arrow)" : undefined} /> : null; })}
+			{visible.map((node) => {
+				const p = positions.get(node.id) ?? { x: width / 2, y: height / 2 };
+				const radius = Math.min(12, (2.2 + Math.sqrt(degree.get(node.id) ?? 0)) * nodeSize);
+				const color = groups.find((group) => groupMatches(node, group.query))?.color ?? "#aaaab0";
+				const isActive = active === node.id;
+				return <g key={node.id} role="button" tabIndex={0} aria-label={`${node.type}: ${node.label}`} className="cursor-pointer outline-none" opacity={active && !neighbors.has(node.id) ? .2 : 1}
+					onPointerEnter={() => setHovered(node.id)} onPointerLeave={() => setHovered((id) => id === node.id ? null : id)} onFocus={() => setFocused(node.id)} onBlur={() => setFocused((id) => id === node.id ? null : id)}
+					onPointerDown={(event) => { event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); moveNode(event, node.id); }} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) moveNode(event, node.id); }} onPointerUp={() => releaseNode(node.id)} onPointerCancel={() => releaseNode(node.id)} onClick={() => onSelect(node.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(node.id); } }}>
+					<circle cx={p.x} cy={p.y} r={isActive ? radius * 1.4 : radius} fill={color} stroke={isActive || selected === node.id ? "white" : "none"} strokeWidth={isActive ? 2.5 : 2} />
+					<circle cx={p.x} cy={p.y} r={Math.max(radius, 8 / view.scale)} fill="transparent" aria-hidden="true" />
+					<title>{node.label}</title>
+					{(view.scale >= textThreshold || selected === node.id || isActive) && <text x={p.x} y={p.y + radius + 13} textAnchor="middle" fill={isActive ? "#fff" : "#bbb"} fontSize={isActive ? 12 : 10} fontWeight={isActive ? 600 : 400} stroke="#171717" strokeWidth="3" paintOrder="stroke" pointerEvents="none">{node.label.length > (isActive ? 120 : 48) ? `${node.label.slice(0, isActive ? 119 : 47)}…` : node.label}</text>}
+				</g>;
+			})}
 		</svg>
 		<div className="absolute bottom-3 left-3 flex gap-1 rounded border border-[#3b3b3e] bg-[#242424] p-1 text-[#ccc]">{[[Minus, "Zoom out", () => setView((v) => ({ ...v, scale: Math.max(.2, v.scale / 1.2) }))], [Plus, "Zoom in", () => setView((v) => ({ ...v, scale: Math.min(5, v.scale * 1.2) }))], [Maximize2, "Fit graph", fit], [Settings2, "Graph settings", () => setSettings((v) => !v)]] .map(([Icon, label, action]) => { const Symbol = Icon as typeof Minus; return <button key={label as string} className="rounded p-1.5 hover:bg-[#383838]" aria-label={label as string} onClick={action as () => void}><Symbol size={15} /></button>; })}</div>
 		{settings && <div role="region" aria-label="Graph settings" className="absolute right-3 top-3 max-h-[calc(100%-1.5rem)] w-60 overflow-y-auto rounded-lg border border-[#39393c] bg-[#252525] text-[#dadada] shadow-xl">

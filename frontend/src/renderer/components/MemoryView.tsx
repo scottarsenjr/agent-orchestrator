@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { LoaderCircle } from "lucide-react";
 import { apiClient, getApiBaseUrl } from "../lib/api-client";
 import { hidesShellTopbar } from "../lib/platform";
 import { Button } from "./ui/button";
@@ -13,6 +14,12 @@ type Graph = { visibility_token: string; nodes: Node[]; edges: { id: string; sou
 
 function Field({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: { value: string; label: string }[] }) {
 	return <label className="flex min-w-32 flex-col gap-1 text-xs text-muted-foreground"><span>{label}</span><Select value={value} onValueChange={onChange}><SelectTrigger aria-label={label} size="sm" className="w-full"><SelectValue /></SelectTrigger><SelectContent>{options.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select></label>;
+}
+
+function MemoryLoading({ label }: { label: string }) {
+	return <div role="status" aria-live="polite" className="flex min-h-64 flex-1 items-center justify-center bg-[#171717] p-6 text-[#c8c8ca]">
+		<div className="flex flex-col items-center gap-3 text-sm"><LoaderCircle aria-hidden="true" className="size-6 animate-spin text-violet-400 motion-reduce:animate-none" /><span>{label}</span></div>
+	</div>;
 }
 
 export function MemoryView() {
@@ -91,7 +98,7 @@ export function MemoryView() {
 			<Field label={t("memory.status")} value={status} onChange={(v) => { clear(); setStatus(v); }} options={[{ value: "all", label: t("memory.allStatuses") }, ...statusOptions]} />
 		</div>
 		<p className="px-4 pt-2 text-xs text-muted-foreground">{t(scope === "project" ? "memory.projectWorkspace" : "memory.sessionScopeNote")}</p>
-		{catalog.isError ? <p role="alert" className="p-4 text-sm">{t("memory.loadProjectsError")}</p> : catalog.isLoading ? <p role="status" className="p-4 text-sm">{t("memory.loadingProjects")}</p> : !valid || session === "none" ? <p className="p-4 text-sm text-muted-foreground">{t("memory.selectProjectSession")}</p> : state === "loading" ? <p role="status" className="p-4 text-sm">{t("memory.loadingMemory")}</p> : state === "error" ? <p role="alert" className="p-4 text-sm">{error}</p> : graph && nodes.length === 0 ? <div className="p-4 text-sm text-muted-foreground"><p>{t(graph.empty_reason === "no_matches" ? "memory.noMatches" : "memory.empty")}</p><p className="mt-2 text-xs">{t("memory.zeroNodes")} · {graph.context.branch || t("memory.noBranch")}{graph.context.dirty ? ` · ${t("memory.uncommittedChanges")}` : ""}</p></div> : graph && <>
+		{catalog.isError ? <p role="alert" className="p-4 text-sm">{t("memory.loadProjectsError")}</p> : catalog.isLoading ? <MemoryLoading label={t("memory.loadingProjects")} /> : !valid || session === "none" ? <p className="p-4 text-sm text-muted-foreground">{t("memory.selectProjectSession")}</p> : state === "loading" ? <MemoryLoading label={t("memory.loadingMemory")} /> : state === "error" ? <p role="alert" className="p-4 text-sm">{error}</p> : graph && nodes.length === 0 ? <div className="p-4 text-sm text-muted-foreground"><p>{t(graph.empty_reason === "no_matches" ? "memory.noMatches" : "memory.empty")}</p><p className="mt-2 text-xs">{t("memory.zeroNodes")} · {graph.context.branch || t("memory.noBranch")}{graph.context.dirty ? ` · ${t("memory.uncommittedChanges")}` : ""}</p></div> : graph && <>
 			<div className="flex flex-wrap items-center gap-2 px-4 py-2 text-xs text-muted-foreground"><span>{t("memory.nodeCount", { returned: graph.counts?.returned ?? nodes.length, visible: graph.counts?.visible ?? nodes.length })}</span>{graph.truncated && <span>{t("memory.truncated")}</span>}<span>{graph.context.branch || t("memory.noBranch")}{graph.context.dirty ? ` · ${t("memory.uncommittedChanges")}` : ""}</span></div>
 			<div className="flex min-h-0 flex-1 flex-row">
 				<MemoryGraph key={project} project={project} nodes={nodes} edges={graph.edges} selected={selected} onSelect={setSelected} resetKey={key} />

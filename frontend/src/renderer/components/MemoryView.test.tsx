@@ -10,6 +10,14 @@ vi.mock("../lib/api-client", () => ({ getApiBaseUrl: () => "http://localhost", a
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
+it("shows an accessible loading state while the project graph is pending", async () => {
+	vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+	render(<QueryClientProvider client={client}><MemoryView /></QueryClientProvider>);
+	await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Loading memory…"));
+	expect(screen.getByRole("status").querySelector("svg")).toHaveClass("animate-spin");
+});
+
 it("shows stored link type and direction in selected details", async () => {
 	const graph = { visibility_token: "v1", context: { branch: "main", dirty: false }, nodes: [
 		{ id: "source", type: "source", label: "Example source", content: "Source detail", status: "accepted", provenance: {} },
