@@ -1341,6 +1341,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/memory/graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read scoped memory graph */
+        get: operations["getMemoryGraph"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mobile/browser-control": {
         parameters: {
             query?: never;
@@ -6118,6 +6135,48 @@ export interface components {
              * @enum {string}
              */
             status: "read";
+        };
+        MemoryContext: {
+            branch: string;
+            commit: string;
+            dirty: boolean;
+        };
+        MemoryCounts: {
+            returned: number;
+            visible: number;
+        };
+        MemoryEdge: {
+            id: string;
+            source: string;
+            target: string;
+            type: string;
+        };
+        MemoryGraph: {
+            context: components["schemas"]["MemoryContext"];
+            counts: null | components["schemas"]["MemoryCounts"];
+            edges: components["schemas"]["MemoryEdge"][];
+            empty_reason: null | string;
+            errors: string[];
+            metadata_only: boolean;
+            nodes: components["schemas"]["MemoryNode"][];
+            project_id: string;
+            revision: null | string;
+            schema_version: number;
+            truncated: boolean;
+            visibility_token: string;
+            workspace: string;
+        };
+        MemoryNode: {
+            content: string;
+            date: string;
+            id: string;
+            label: string;
+            provenance: {
+                [key: string]: unknown;
+            } | null;
+            source_id: string;
+            status: string;
+            type: string;
         };
         MemoryPressureResponse: {
             /** Format: double */
@@ -12205,6 +12264,70 @@ export interface operations {
             };
             /** @description Bad Gateway */
             502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    getMemoryGraph: {
+        parameters: {
+            query?: {
+                projectId?: string;
+                scope?: string;
+                sessionId?: string;
+                query?: string;
+                nodeTypes?: string;
+                statuses?: string;
+                metadataOnly?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryGraph"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };

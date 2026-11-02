@@ -3305,6 +3305,72 @@ paths:
       summary: Fetch link-preview metadata (Open Graph) for an external URL
       tags:
       - link-preview
+  /api/v1/memory/graph:
+    get:
+      operationId: getMemoryGraph
+      parameters:
+      - in: query
+        name: projectId
+        schema:
+          type: string
+      - in: query
+        name: scope
+        schema:
+          type: string
+      - in: query
+        name: sessionId
+        schema:
+          type: string
+      - in: query
+        name: query
+        schema:
+          type: string
+      - in: query
+        name: nodeTypes
+        schema:
+          type: string
+      - in: query
+        name: statuses
+        schema:
+          type: string
+      - in: query
+        name: metadataOnly
+        schema:
+          type: boolean
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryGraph'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Read scoped memory graph
+      tags:
+      - memory
   /api/v1/mobile/browser-control:
     post:
       operationId: setMobileBrowserRemoteAccess
@@ -17667,6 +17733,132 @@ components:
           type: string
       required:
       - status
+      type: object
+    MemoryContext:
+      properties:
+        branch:
+          type: string
+        commit:
+          type: string
+        dirty:
+          type: boolean
+      required:
+      - branch
+      - commit
+      - dirty
+      type: object
+    MemoryCounts:
+      properties:
+        returned:
+          type: integer
+        visible:
+          type: integer
+      required:
+      - visible
+      - returned
+      type: object
+    MemoryEdge:
+      properties:
+        id:
+          type: string
+        source:
+          type: string
+        target:
+          type: string
+        type:
+          type: string
+      required:
+      - id
+      - source
+      - target
+      - type
+      type: object
+    MemoryGraph:
+      properties:
+        context:
+          $ref: '#/components/schemas/MemoryContext'
+        counts:
+          anyOf:
+          - type: "null"
+          - $ref: '#/components/schemas/MemoryCounts'
+            type: object
+        edges:
+          items:
+            $ref: '#/components/schemas/MemoryEdge'
+          type: array
+        empty_reason:
+          type:
+          - "null"
+          - string
+        errors:
+          items:
+            type: string
+          type: array
+        metadata_only:
+          type: boolean
+        nodes:
+          items:
+            $ref: '#/components/schemas/MemoryNode'
+          type: array
+        project_id:
+          type: string
+        revision:
+          type:
+          - "null"
+          - string
+        schema_version:
+          type: integer
+        truncated:
+          type: boolean
+        visibility_token:
+          type: string
+        workspace:
+          type: string
+      required:
+      - schema_version
+      - project_id
+      - workspace
+      - context
+      - revision
+      - visibility_token
+      - nodes
+      - edges
+      - counts
+      - truncated
+      - empty_reason
+      - errors
+      - metadata_only
+      type: object
+    MemoryNode:
+      properties:
+        content:
+          type: string
+        date:
+          type: string
+        id:
+          type: string
+        label:
+          type: string
+        provenance:
+          additionalProperties: {}
+          type:
+          - object
+          - "null"
+        source_id:
+          type: string
+        status:
+          type: string
+        type:
+          type: string
+      required:
+      - id
+      - type
+      - label
+      - content
+      - source_id
+      - date
+      - status
+      - provenance
       type: object
     MemoryPressureResponse:
       properties:

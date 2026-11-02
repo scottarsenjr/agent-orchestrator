@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -133,6 +134,7 @@ type API struct {
 	projects      *controllers.ProjectsController
 	sessions      *controllers.SessionsController
 	automations   *controllers.AutomationsController
+	memory        *controllers.MemoryController
 	desktop       *controllers.DesktopWorkspaceController
 	usage         *controllers.UsageController
 	prs           *controllers.PRsController
@@ -196,6 +198,7 @@ func newAPIWithLogger(cfg config.Config, deps APIDeps, log *slog.Logger) *API {
 			AgentBrowserToken:        cfg.AgentBrowserToken,
 		},
 		automations:   &controllers.AutomationsController{Svc: deps.Automations},
+		memory:        &controllers.MemoryController{Projects: deps.Projects, Sessions: deps.Sessions, Python: os.Getenv("AO_MEMORY_PYTHON")},
 		desktop:       &controllers.DesktopWorkspaceController{Svc: deps.DesktopWorkspaces},
 		usage:         &controllers.UsageController{Svc: deps.UsageSummary, Log: loggerOrDefault(log), Memory: deps.SessionMemory, Steps: deps.SessionSteps, Pressure: memoryPressure(deps.SessionMemory)},
 		prs:           &controllers.PRsController{Svc: deps.PRs},
@@ -310,6 +313,7 @@ func (a *API) Register(root chi.Router) {
 			a.projects.Register(r)
 			a.sessions.Register(r)
 			a.automations.Register(r)
+			a.memory.Register(r)
 			a.desktop.Register(r)
 			a.usage.Register(r)
 			a.prs.Register(r)
