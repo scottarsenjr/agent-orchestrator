@@ -10,6 +10,7 @@ Follow [CONTRIBUTING.md](CONTRIBUTING.md) before choosing an issue or starting w
 - `frontend/`: Electron + React supervisor wired to the daemon through the generated typed client. Treat it as a thin supervisor/UI surface; do not move daemon logic into it.
 - `docs/`: Current architecture and status notes. Start here before changing lifecycle, CLI, agents, storage, or daemon behavior.
 - `test/`: External smoke/e2e assets, including the CLI fresh-install container check.
+- `contracts/cloud/` and `packages/cloud-client/`: the AO Cloud API contract and its typed client. The AO Cloud control plane is not in this repository: it lives in the private `OrchestratorInc/ao-control-plane`, and code here reaches it only through this contract (`scripts/check-public-boundary.sh` enforces it).
 - `.github/workflows/`: CI definitions. Mirror these commands locally when possible.
 
 ## Commands
@@ -152,7 +153,7 @@ Commit `openapi.yaml` and `frontend/src/api/schema.ts` together with the Go chan
 
 ## PR hygiene
 
-- When creating or updating a PR, follow `.agents/skills/pr-description/SKILL.md` so the published description starts with verified category change counts.
+- When creating or updating a PR, follow `.agents/skills/pr-description/SKILL.md` so the published description starts with verified category change counts and shows before-and-after evidence, with screenshots or recordings for UI changes.
 
 - Before creating or handing over a PR, run all CI validation jobs locally using the workflow commands, pinned runtimes, and CI environment (including complete suites, not only focused tests). Fix failures and rerun the affected full suites before sharing the PR. A local pass is not a guarantee: verify the remote checks too. If a job cannot run locally (for example, an unavailable native OS runner, Docker, or required credentials), explicitly report the exact gap and verify that job in CI; never label it locally passed. Do not execute publishing or production deployment as a validation step.
 
