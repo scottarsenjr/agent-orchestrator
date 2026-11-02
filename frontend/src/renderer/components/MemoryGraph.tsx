@@ -146,13 +146,17 @@ export function MemoryGraph({ nodes, edges, selected, onSelect, resetKey, projec
 		if (!svg || !transform || !point) return;
 		const cursor = svg.createSVGPoint(); cursor.x = event.clientX; cursor.y = event.clientY;
 		const position = cursor.matrixTransform(transform.inverse());
-		point.fx = position.x; point.fy = position.y;
+		point.x = point.fx = position.x; point.y = point.fy = position.y;
+		point.vx = point.vy = 0;
 		simulationRef.current?.alphaTarget(.2).restart();
 	};
 	const releaseNode = (id: string, canceled = false) => {
 		const gesture = nodeDrag.current;
 		const point = simulationRef.current?.nodes().find((item) => item.id === id);
-		if (gesture?.id === id && point && gesture.moved && canceled) { point.fx = gesture.initialFx; point.fy = gesture.initialFy; }
+		if (gesture?.id === id && point && gesture.moved) {
+			point.fx = canceled ? gesture.initialFx : null;
+			point.fy = canceled ? gesture.initialFy : null;
+		}
 		if (gesture?.id === id && gesture.moved) suppressClick.current = true;
 		nodeDrag.current = null;
 		simulationRef.current?.alphaTarget(0);

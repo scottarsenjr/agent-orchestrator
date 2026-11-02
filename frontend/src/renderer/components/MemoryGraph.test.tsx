@@ -30,7 +30,7 @@ it("plays the graph in chronological order and can be stopped or replayed", () =
 	expect(screen.getByRole("button", { name: "Start animation" })).toBeInTheDocument();
 });
 
-it("keeps a dragged node at its new position without selecting it, while a click still selects it", async () => {
+it("moves a dragged node without selecting it, while a click still selects it", async () => {
 	vi.stubGlobal("PointerEvent", MouseEvent);
 	const onSelect = vi.fn();
 	const nodes = [{ id: "a", type: "source", label: "Note", status: null }];
@@ -45,18 +45,39 @@ it("keeps a dragged node at its new position without selecting it, while a click
 	fireEvent.focus(node);
 	fireEvent.pointerDown(node, { clientX: 10, clientY: 10, button: 0 });
 	fireEvent.pointerMove(node, { clientX: 60, clientY: 75, buttons: 1 });
+	await waitFor(() => { expect(Number(node.querySelector("circle")?.getAttribute("cx"))).toBeCloseTo(60); expect(Number(node.querySelector("circle")?.getAttribute("cy"))).toBeCloseTo(75); });
 	fireEvent.pointerUp(node, { clientX: 60, clientY: 75 });
 	expect(node.querySelector("circle")).toHaveAttribute("stroke", "none");
 	fireEvent.click(node);
 	expect(onSelect).not.toHaveBeenCalled();
-	await waitFor(() => { expect(Number(node.querySelector("circle")?.getAttribute("cx"))).toBeCloseTo(60); expect(Number(node.querySelector("circle")?.getAttribute("cy"))).toBeCloseTo(75); });
 	fireEvent.pointerDown(node, { clientX: 60, clientY: 75, button: 0 });
 	fireEvent.pointerUp(node, { clientX: 60, clientY: 75 });
 	fireEvent.click(node);
 	expect(onSelect).toHaveBeenCalledOnce();
 	rerender(<MemoryGraph nodes={nodes} edges={edges} selected="a" onSelect={onSelect} resetKey="node-drag" />);
-	expect(Number(node.querySelector("circle")?.getAttribute("cx"))).toBeCloseTo(60);
-	expect(Number(node.querySelector("circle")?.getAttribute("cy"))).toBeCloseTo(75);
+});
+
+it("releases a dragged node so a connected node can pull it again", async () => {
+	vi.stubGlobal("PointerEvent", MouseEvent);
+	const { container } = render(<MemoryGraph resetKey="linked-drag" selected={null} onSelect={() => {}} nodes={[
+		{ id: "a", type: "source", label: "First", status: null },
+		{ id: "b", type: "entity", label: "Second", status: null },
+	]} edges={[{ id: "ab", source: "a", target: "b", type: "source_entity" }]} />);
+	const svg = container.querySelector("svg")!;
+	Object.defineProperty(svg, "getScreenCTM", { value: () => ({ inverse: () => ({}) }) });
+	Object.defineProperty(svg, "createSVGPoint", { value: () => ({ x: 0, y: 0, matrixTransform() { return { x: this.x, y: this.y }; } }) });
+	const first = screen.getByRole("button", { name: "source: First" });
+	const second = screen.getByRole("button", { name: "entity: Second" });
+	for (const node of [first, second]) Object.defineProperty(node, "setPointerCapture", { value: vi.fn() });
+	fireEvent.pointerDown(first, { clientX: 30, clientY: 30, button: 0 });
+	fireEvent.pointerMove(first, { clientX: 100, clientY: 100, buttons: 1 });
+	await waitFor(() => expect(Number(first.querySelector("circle")?.getAttribute("cx"))).toBeCloseTo(100));
+	fireEvent.pointerUp(first, { clientX: 100, clientY: 100 });
+	const before = Number(first.querySelector("circle")?.getAttribute("cx"));
+	fireEvent.pointerDown(second, { clientX: 120, clientY: 120, button: 0 });
+	fireEvent.pointerMove(second, { clientX: 500, clientY: 100, buttons: 1 });
+	await waitFor(() => expect(Math.abs(Number(first.querySelector("circle")?.getAttribute("cx")) - before)).toBeGreaterThan(1));
+	fireEvent.pointerUp(second, { clientX: 500, clientY: 100 });
 });
 
 it("zooms around the pointer even after panning", () => {
