@@ -1,8 +1,21 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { MemoryGraph } from "./MemoryGraph";
 
-afterEach(() => localStorage.clear());
+afterEach(() => { localStorage.clear(); vi.unstubAllGlobals(); });
+
+it("keeps a queued pan safe when the pointer is released before React renders", () => {
+	vi.stubGlobal("PointerEvent", MouseEvent);
+	const { container } = render(<MemoryGraph nodes={[]} edges={[]} selected={null} onSelect={() => {}} resetKey="pan" />);
+	const svg = container.querySelector("svg")!;
+	Object.defineProperty(svg, "setPointerCapture", { value: vi.fn(), configurable: true });
+	act(() => {
+		fireEvent.pointerDown(svg, { clientX: 10, clientY: 20, pointerId: 1 });
+		fireEvent.pointerMove(svg, { clientX: 40, clientY: 50, pointerId: 1 });
+		fireEvent.pointerUp(svg, { pointerId: 1 });
+	});
+	expect(svg.getAttribute("viewBox")?.split(" ").slice(0, 2)).toEqual(["-30", "-30"]);
+});
 
 it("renders actual links, filters orphans, groups nodes and selects details", () => {
 	const onSelect = vi.fn();
