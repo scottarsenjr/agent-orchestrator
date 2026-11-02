@@ -12,15 +12,17 @@ func TestPRMergePostsToDaemon(t *testing.T) {
 	srv, capture := reviewServer(t, http.StatusOK, `{"ok":true,"prNumber":42,"method":"squash"}`)
 	writeRunFileFor(t, cfg, srv)
 
-	out, errOut, err := executeCLI(t, aliveDeps(), "pr", "merge", "#42")
+	prURL, sha := "https://github.com/acme/widgets/pull/42", strings.Repeat("a", 40)
+	out, errOut, err := executeCLI(t, aliveDeps(), "pr", "merge", "#42", "--url", prURL, "--head", sha)
 	if err != nil {
 		t.Fatalf("unexpected error: %v\nstderr=%s", err, errOut)
 	}
 	if capture.method != http.MethodPost || capture.path != "/api/v1/prs/42/merge" {
 		t.Fatalf("request = %s %s", capture.method, capture.path)
 	}
-	if strings.TrimSpace(capture.body) != "{}" {
-		t.Fatalf("body = %q, want {}", capture.body)
+	var request mergePRRequest
+	if err := json.Unmarshal([]byte(capture.body), &request); err != nil || request.PRURL != prURL || request.ExpectedHeadSHA != sha {
+		t.Fatalf("body = %q, err = %v", capture.body, err)
 	}
 	if !strings.Contains(out, "merged PR #42 using squash") {
 		t.Fatalf("stdout = %q", out)
@@ -32,7 +34,7 @@ func TestPRMergeOmitsMissingMethodFromOutput(t *testing.T) {
 	srv, _ := reviewServer(t, http.StatusOK, `{"ok":true,"prNumber":42}`)
 	writeRunFileFor(t, cfg, srv)
 
-	out, errOut, err := executeCLI(t, aliveDeps(), "pr", "merge", "42")
+	out, errOut, err := executeCLI(t, aliveDeps(), "pr", "merge", "42", "--url", "https://github.com/acme/widgets/pull/42", "--head", strings.Repeat("a", 40))
 	if err != nil {
 		t.Fatalf("unexpected error: %v\nstderr=%s", err, errOut)
 	}
@@ -73,13 +75,27 @@ func TestPRMergeSurfacesDaemonError(t *testing.T) {
 	srv, _ := reviewServer(t, http.StatusConflict, `{"message":"PR is not mergeable","code":"PR_NOT_MERGEABLE","requestId":"req-1"}`)
 	writeRunFileFor(t, cfg, srv)
 
-	_, _, err := executeCLI(t, aliveDeps(), "pr", "merge", "42")
+	_, _, err := executeCLI(t, aliveDeps(), "pr", "merge", "42", "--url", "https://github.com/acme/widgets/pull/42", "--head", strings.Repeat("a", 40))
 	if got := ExitCode(err); got != 1 {
 		t.Fatalf("exit code = %d, want 1; err=%v", got, err)
 	}
 	for _, want := range []string{"PR is not mergeable", "PR_NOT_MERGEABLE", "req-1"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("err = %q, want %q", err, want)
+		}
+	}
+}
+
+func TestPRMergeRequiresURLAndHead(t *testing.T) {
+	setConfigEnv(t)
+	for _, args := range [][]string{
+		{"pr", "merge", "42"},
+		{"pr", "merge", "42", "--url", "https://github.com/acme/widgets/pull/42"},
+		{"pr", "merge", "42", "--head", strings.Repeat("a", 40)},
+	} {
+		_, _, err := executeCLI(t, aliveDeps(), args...)
+		if got := ExitCode(err); got != 2 {
+			t.Fatalf("args = %v, exit code = %d, want 2; err=%v", args, got, err)
 		}
 	}
 }

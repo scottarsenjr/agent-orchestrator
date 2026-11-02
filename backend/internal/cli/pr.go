@@ -16,6 +16,11 @@ type mergePRResponse struct {
 	Method   string `json:"method"`
 }
 
+type mergePRRequest struct {
+	PRURL           string `json:"prUrl"`
+	ExpectedHeadSHA string `json:"expectedHeadSha"`
+}
+
 type resolveCommentsRequest struct {
 	CommentIDs []string `json:"commentIds,omitempty"`
 }
@@ -36,7 +41,8 @@ func newPRCommand(ctx *commandContext) *cobra.Command {
 }
 
 func newPRMergeCommand(ctx *commandContext) *cobra.Command {
-	return &cobra.Command{
+	var prURL, expectedHead string
+	cmd := &cobra.Command{
 		Use:   "merge <pr-number>",
 		Short: "Merge a pull request",
 		Args:  usageArgs(cobra.ExactArgs(1)),
@@ -45,8 +51,12 @@ func newPRMergeCommand(ctx *commandContext) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if strings.TrimSpace(prURL) == "" || strings.TrimSpace(expectedHead) == "" {
+				return usageError{errors.New("--url and --head are required")}
+			}
 			var res mergePRResponse
-			if err := ctx.postJSON(cmd.Context(), "prs/"+url.PathEscape(prNumber)+"/merge", struct{}{}, &res); err != nil {
+			req := mergePRRequest{PRURL: strings.TrimSpace(prURL), ExpectedHeadSHA: strings.TrimSpace(expectedHead)}
+			if err := ctx.postJSON(cmd.Context(), "prs/"+url.PathEscape(prNumber)+"/merge", req, &res); err != nil {
 				return err
 			}
 			if method := strings.TrimSpace(res.Method); method != "" {
@@ -57,6 +67,9 @@ func newPRMergeCommand(ctx *commandContext) *cobra.Command {
 			return err
 		},
 	}
+	cmd.Flags().StringVar(&prURL, "url", "", "Pull request URL")
+	cmd.Flags().StringVar(&expectedHead, "head", "", "Expected PR head SHA")
+	return cmd
 }
 
 func newPRResolveCommentsCommand(ctx *commandContext) *cobra.Command {

@@ -8,7 +8,7 @@ import (
 
 func TestCanonicalConfigPreservesExistingSettings(t *testing.T) {
 	cfg := setConfigEnv(t)
-	srv, capture := projectServer(t, http.StatusOK, `{"status":"ok","project":{"id":"demo","config":{"containerReap":{"disabled":true},"reviewers":[{"harness":"codex","agentConfig":{"model":"gpt-5","mode":"high"}}],"env":{"KEEP":"value"}}}}`)
+	srv, capture := projectServer(t, http.StatusOK, `{"status":"ok","project":{"id":"demo","config":{"containerReap":{"disabled":true},"worker":{"agent":"codex","agentConfig":{"effort":"medium"}},"reviewers":[{"harness":"codex","agentConfig":{"model":"gpt-5","mode":"high","effort":"high"}}],"env":{"KEEP":"value"}}}}`)
 	writeRunFileFor(t, cfg, srv)
 	deps := Deps{ProcessAlive: func(int) bool { return true }}
 	out, _, err := executeCLI(t, deps, "project", "get", "demo", "--json")
@@ -37,7 +37,7 @@ func TestCanonicalConfigPreservesExistingSettings(t *testing.T) {
 	if body.Config.ContainerReap == nil || !body.Config.ContainerReap.Disabled {
 		t.Fatalf("container opt-out lost: %s", capture.body)
 	}
-	if len(body.Config.Reviewers) != 1 || body.Config.Reviewers[0].AgentConfig == nil || body.Config.Reviewers[0].AgentConfig.Model != "gpt-5" || body.Config.Reviewers[0].AgentConfig.Mode != "high" {
+	if len(body.Config.Reviewers) != 1 || body.Config.Reviewers[0].AgentConfig == nil || body.Config.Reviewers[0].AgentConfig.Model != "gpt-5" || body.Config.Reviewers[0].AgentConfig.Mode != "high" || body.Config.Reviewers[0].AgentConfig.Effort != "high" || body.Config.Worker.AgentConfig.Effort != "medium" {
 		t.Fatalf("reviewer config lost: %s", capture.body)
 	}
 	if body.Config.Env["KEEP"] != "value" || body.Config.CanonicalRepoURL != got.Project.Config.CanonicalRepoURL {
