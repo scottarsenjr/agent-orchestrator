@@ -377,6 +377,9 @@ type Deps struct {
 	// (AO_WINDOWS_UPDATE_WHEN_IDLE).
 	WindowsUpdateWhenIdle bool
 	PrivateNPMPrefixes    map[Target]string
+	// CloudflaredAvailable verifies the connector after an install attempt,
+	// including package-manager outcomes that mean it was already installed.
+	CloudflaredAvailable func() bool
 }
 
 // Service runs real install commands for the fixed Target allowlist.
@@ -390,17 +393,18 @@ type Service struct {
 	harnessGatesMu    sync.Mutex
 	harnessGates      map[domain.AgentHarness]*sync.RWMutex
 
-	executables         ports.ExecutableFinder
-	commands            ports.CommandRunner
-	installCommands     ports.InstallCommandRunner
-	installScripts      ports.InstallScriptRunner
-	installCapabilities ports.InstallCapabilityProbe
-	pathWritable        ports.PathWritableProbe
-	privateNPMPrefixes  map[Target]string
-	jobStore            ports.AgentInstallJobStore
-	verifier            HarnessVerifier
-	sessions            SessionLister
-	reviewers           ReviewerLister
+	executables          ports.ExecutableFinder
+	commands             ports.CommandRunner
+	installCommands      ports.InstallCommandRunner
+	installScripts       ports.InstallScriptRunner
+	installCapabilities  ports.InstallCapabilityProbe
+	pathWritable         ports.PathWritableProbe
+	cloudflaredAvailable func() bool
+	privateNPMPrefixes   map[Target]string
+	jobStore             ports.AgentInstallJobStore
+	verifier             HarnessVerifier
+	sessions             SessionLister
+	reviewers            ReviewerLister
 	// goos selects the platform branch in planFor. Real use is always
 	// runtime.GOOS; tests override it to exercise every OS branch from one
 	// machine, the same seam lookPath provides for PATH probing.
@@ -523,6 +527,7 @@ func NewWithDeps(executables ports.ExecutableFinder, commands ports.CommandRunne
 		updateAdvisories:           make(map[Target]UpdateAdvisory),
 		updateAdvisoryCalls:        make(map[Target]*updateAdvisoryCall),
 		pathWritable:               pathWritable,
+		cloudflaredAvailable:       deps.CloudflaredAvailable,
 		privateNPMPrefixes:         deps.PrivateNPMPrefixes,
 	}
 }
@@ -1201,6 +1206,10 @@ func (s *Service) run(parent context.Context, argv []string, job *Job) {
 	} else {
 		runErr = s.commands.Run(ctx, argv, out, out)
 	}
+	cloudflaredVerified := false
+	if ctx.Err() == nil && job.Target == TargetCloudflared && s.cloudflaredAvailable != nil {
+		cloudflaredVerified = s.cloudflaredAvailable()
+	}
 	now := time.Now()
 
 	s.mu.Lock()
@@ -1218,13 +1227,19 @@ func (s *Service) run(parent context.Context, argv []string, job *Job) {
 		s.mu.Unlock()
 		return
 	}
-	if runErr != nil {
+	if runErr != nil && !cloudflaredVerified {
 		job.Status = StatusFailed
 		job.Error = runErr.Error()
 		s.mu.Unlock()
 		return
 	}
-	if !IsAgentTarget(job.Target) {
+	if job.Target == TargetCloudflared && s.cloudflaredAvailable != nil && !cloudflaredVerified {
+		job.Status = StatusFailed
+		job.Error = "install command finished but a usable cloudflared was not found"
+		s.mu.Unlock()
+		return
+	}
+	if !IsAgentTarget(job.Target) && !cloudflaredVerified {
 		if path, err := s.executables.LookPath(string(job.Target)); err != nil || path == "" {
 			job.Status = StatusFailed
 			job.Error = fmt.Sprintf("install command finished but %s is still not in PATH", job.Target)

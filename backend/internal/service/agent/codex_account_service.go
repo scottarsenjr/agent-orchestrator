@@ -491,6 +491,13 @@ func (s *Service) WarmCodexAccounts() {
 					_, _ = s.codexAccounts.ensureAuthentication(s.codexAccounts.ctx, record, domain.AgentReadinessPurposeDisplay)
 				}
 			}
+			// Authentication updates catalog snapshots. Do not use the older
+			// pre-check records for capacity, or a successful warm-up can be
+			// overwritten as "authentication unknown".
+			records, err = s.codexAccounts.catalog.recordsFor(nil)
+			if err != nil {
+				return
+			}
 		}
 		_ = s.codexAccounts.capacity.ensure(s.codexAccounts.ctx, records, capabilities, false)
 	}()

@@ -12,6 +12,44 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 )
 
+func TestCodexWarmUsesRefreshedAuthenticationForCapacity(t *testing.T) {
+	started := make(chan struct{}, 1)
+	client := &fakeCodexAccountClient{
+		read: ports.CodexAccountObservation{
+			Authentication: domain.AgentAuthenticationAuthorized,
+			Method:         domain.CodexAuthMethodChatGPT,
+		},
+		capacityStarted: started,
+		capacity: ports.CodexCapacityObservation{
+			Overall: &domain.CodexCapacityBucket{LimitID: "codex", Reached: domain.CodexCapacityNotReached, Primary: &domain.CodexCapacityWindow{UsedPercent: 25}},
+		},
+	}
+	factory := &fakeCodexAccountFactory{
+		capabilities: supportedCodexAccountCapabilities(),
+		open: func(ports.CodexAccountContext) (ports.CodexAccountClient, error) {
+			return client, nil
+		},
+	}
+	manager := newTestCodexAccountManager(t, factory, nil)
+	manager.catalog.newID = func() string { return testAccountID }
+	record := commitTestAccount(t, manager.catalog, manager.pendingRoot, "b60a377d-da68-4a61-86f2-f31f04c571f2", client.read)
+	service := &Service{codexAccounts: manager}
+	service.WarmCodexAccounts()
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("capacity was skipped after authentication succeeded")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if snapshot := manager.capacity.snapshot(record.Snapshot.ID); snapshot.State == domain.CodexCapacityAvailable {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("capacity was not updated: %#v", manager.capacity.snapshot(record.Snapshot.ID))
+}
+
 func TestCodexCapacitySingleFlight(t *testing.T) {
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 	started, release := make(chan struct{}, 1), make(chan struct{})

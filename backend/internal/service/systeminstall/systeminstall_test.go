@@ -438,6 +438,32 @@ func TestStart_ExitZeroWithoutTargetOnPATHFails(t *testing.T) {
 	}
 }
 
+func TestCloudflaredInstallAcceptsVerifiedExistingConnector(t *testing.T) {
+	s := newTestService("windows", "winget")
+	s.commands = commandRunnerFunc(func(context.Context, []string, io.Writer, io.Writer) error {
+		return errors.New("exit status 0x8a15002b")
+	})
+	s.cloudflaredAvailable = func() bool { return true }
+	job := &Job{Target: TargetCloudflared, Status: StatusRunning}
+	s.run(context.Background(), []string{"winget", "install"}, job)
+	if job.Status != StatusSucceeded || job.Error != "" {
+		t.Fatalf("verified installed connector = %s, %q", job.Status, job.Error)
+	}
+}
+
+func TestCloudflaredInstallDoesNotHideFailureWithoutConnector(t *testing.T) {
+	s := newTestService("windows", "winget")
+	s.commands = commandRunnerFunc(func(context.Context, []string, io.Writer, io.Writer) error {
+		return errors.New("exit status 0x8a15002b")
+	})
+	s.cloudflaredAvailable = func() bool { return false }
+	job := &Job{Target: TargetCloudflared, Status: StatusRunning}
+	s.run(context.Background(), []string{"winget", "install"}, job)
+	if job.Status != StatusFailed || job.Error == "" {
+		t.Fatalf("unavailable connector = %s, %q", job.Status, job.Error)
+	}
+}
+
 func TestStartAndStatus_Failed(t *testing.T) {
 	s := newTestService("darwin", "brew")
 	s.commands = testCommandRunner(func(context.Context, []string) *exec.Cmd { return exec.Command("false") })

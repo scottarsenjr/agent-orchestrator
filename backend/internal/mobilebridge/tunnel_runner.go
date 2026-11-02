@@ -3,11 +3,13 @@ package mobilebridge
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"time"
 
 	aoprocess "github.com/aoagents/agent-orchestrator/backend/internal/process"
@@ -30,6 +32,9 @@ type TunnelRunner struct {
 	// SettleDelay overrides how long after registration the hostname is
 	// considered resolvable. Zero uses DefaultTunnelSettleDelay.
 	SettleDelay time.Duration
+	// HealthProbe and HealthInterval are injectable for process tests.
+	HealthProbe    func(context.Context, int) bool
+	HealthInterval time.Duration
 }
 
 // Run supervises the connector until ctx is cancelled. It blocks, so callers
@@ -82,6 +87,7 @@ func (t *TunnelRunner) runOnce(ctx context.Context) error {
 		return fmt.Errorf("start cloudflared: %w", err)
 	}
 	t.Runtime.Started()
+	t.Runtime.RequireHealth()
 	pidOwner := newTunnelPIDOwner(t.PIDPath)
 
 	// Record the pid before anything can go wrong, so a daemon that dies in the
@@ -95,6 +101,16 @@ func (t *TunnelRunner) runOnce(ctx context.Context) error {
 	settleCtx, stopSettle := context.WithCancel(ctx)
 	defer stopSettle()
 	go t.awaitSettled(settleCtx)
+	healthCtx, stopHealth := context.WithCancel(ctx)
+	healthDone := make(chan struct{})
+	go func() {
+		defer close(healthDone)
+		t.monitorHealth(healthCtx, metricsPort)
+	}()
+	defer func() {
+		stopHealth()
+		<-healthDone
+	}()
 
 	scanner := bufio.NewScanner(stderr)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -113,6 +129,62 @@ func (t *TunnelRunner) runOnce(ctx context.Context) error {
 		return waitErr
 	}
 	return errors.New("connector exited")
+}
+
+// monitorHealth tracks the connector continuously, not just its first
+// registration log. Two missed probes absorb a transient local metrics error.
+// cloudflared reconnects itself; keeping the process avoids rotating the URL.
+func (t *TunnelRunner) monitorHealth(ctx context.Context, metricsPort int) {
+	interval := t.HealthInterval
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	probe := t.HealthProbe
+	if probe == nil {
+		probe = cloudflaredReady
+	}
+	misses := 0
+	for ctx.Err() == nil {
+		ok := probe(ctx, metricsPort)
+		if ctx.Err() != nil {
+			return
+		}
+		if ok {
+			misses = 0
+			t.Runtime.SetHealth(true)
+		} else {
+			misses++
+			if misses >= 2 {
+				t.Runtime.SetHealth(false)
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(interval):
+		}
+	}
+}
+
+func cloudflaredReady(ctx context.Context, metricsPort int) bool {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/ready", metricsPort), nil)
+	if err != nil {
+		return false
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return false
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return false
+	}
+	var status struct {
+		ReadyConnections int `json:"readyConnections"`
+	}
+	return json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&status) == nil && status.ReadyConnections > 0
 }
 
 // awaitSettled holds the tunnel out of the endpoint list until its freshly

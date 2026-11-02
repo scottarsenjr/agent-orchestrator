@@ -3,6 +3,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/binary"
 	"os"
 	"path/filepath"
@@ -45,6 +46,101 @@ func TestCodexWindowsDACLRejectsUnsupportedEffectiveAllowACEs(t *testing.T) {
 				t.Fatalf("effective ACE type %#x was accepted", aceType)
 			}
 		})
+	}
+}
+
+func TestCodexPrivateStorageRepairsAdministratorsOwner(t *testing.T) {
+	dir := t.TempDir()
+	setWindowsTestAdministratorsOwner(t, dir)
+	if err := validateCodexDirectory(dir, false); err != nil {
+		t.Fatalf("non-private device directory owned by Administrators: %v", err)
+	}
+	if err := validateCodexDirectory(dir, true); err == nil {
+		t.Fatal("private directory accepted Administrators as its owner")
+	}
+	if err := protectCodexPrivateDirectory(dir); err != nil {
+		t.Fatalf("protecting Administrators-owned directory: %v", err)
+	}
+	handle := openWindowsTestFile(t, dir, windows.READ_CONTROL)
+	current, _, safe, err := codexWindowsHandleSecurity(handle, true)
+	_ = windows.CloseHandle(handle)
+	if err != nil || !current || !safe {
+		t.Fatalf("directory owner=%t ACL=%t error=%v", current, safe, err)
+	}
+	path := filepath.Join(dir, "credential")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	setWindowsTestAdministratorsOwner(t, path)
+	if err := protectCodexPrivateFile(path, file); err != nil {
+		t.Fatalf("protecting Administrators-owned file: %v", err)
+	}
+	fileHandle := openWindowsTestFile(t, path, windows.READ_CONTROL)
+	current, _, safe, err = codexWindowsHandleSecurity(fileHandle, true)
+	_ = windows.CloseHandle(fileHandle)
+	if err != nil || !current || !safe {
+		t.Fatalf("file owner=%t ACL=%t error=%v", current, safe, err)
+	}
+}
+
+func TestCodexReconcilesAdministratorsOwnedDeviceHome(t *testing.T) {
+	root := t.TempDir()
+	device := filepath.Join(root, "device")
+	if err := ensurePrivateDirectory(device); err != nil {
+		t.Fatal(err)
+	}
+	credential := filepath.Join(device, codexCredentialFilename)
+	if err := writeGlobalCredentialAtomic(credential, testAPIKeyCredential("test-device-key")); err != nil {
+		t.Fatal(err)
+	}
+	setWindowsTestAdministratorsOwner(t, device)
+	setWindowsTestAdministratorsOwner(t, credential)
+	manager := newCodexAccountManager(context.Background(), filepath.Join(root, "accounts"), filepath.Join(root, "pending"), filepath.Join(root, "staging"), device, nil, nil, nil)
+	service := &Service{codexAccounts: manager}
+	if err := service.WaitCodexAccountStoreReady(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.EnsureCodexDeviceAccountReconciled(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	view := manager.cached()
+	if len(view.Accounts) != 1 || !view.Accounts[0].Active {
+		t.Fatalf("device account was not imported as active: %#v", view.Accounts)
+	}
+}
+
+func setWindowsTestAdministratorsOwner(t *testing.T, path string) {
+	t.Helper()
+	administrators, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle := openWindowsTestFile(t, path, windows.WRITE_OWNER|windows.READ_CONTROL)
+	defer windows.CloseHandle(handle)
+	if err := windows.SetSecurityInfo(handle, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION, administrators, nil, nil, nil); err != nil {
+		t.Skipf("setting Administrators owner requires an elevated test process: %v", err)
+	}
+}
+
+func TestCodexPrivateOwnerRepairRejectsChangedIdentity(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first")
+	second := filepath.Join(dir, "second")
+	for _, path := range []string{first, second} {
+		if err := os.WriteFile(path, []byte("test"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	handle := openWindowsTestFile(t, first, windows.READ_CONTROL)
+	var original windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(handle, &original); err != nil {
+		t.Fatal(err)
+	}
+	_ = windows.CloseHandle(handle)
+	if err := claimAdministratorsOwnedCodexPath(second, false, original); err == nil {
+		t.Fatal("owner repair accepted a different file")
 	}
 }
 

@@ -681,6 +681,18 @@ func Run(buildVersion string) error {
 		ManagedRoot:               managedHarnessRoot(cfg),
 		Releases:                  store,
 		PrivateNPMPrefixes:        privateNPMPrefixes,
+		CloudflaredAvailable: func() bool {
+			lookup := mobilebridge.LocalCloudflaredLookup(cfg.DataDir)
+			result := mobilebridge.ResolveCloudflared(lookup)
+			if result.NeedsInstall || result.Path == "" || !lookup.Exists(result.Path) {
+				return false
+			}
+			if result.Source == mobilebridge.CloudflaredFromSystem {
+				return true // The resolver already checked the system version.
+			}
+			version, ok := lookup.Version(result.Path)
+			return ok && version.AtLeast(mobilebridge.MinCloudflaredVersion)
+		},
 	})
 	if err := systemInstall.Recover(ctx); err != nil {
 		stop()

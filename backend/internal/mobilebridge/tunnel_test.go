@@ -1,11 +1,18 @@
 package mobilebridge
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Verbatim cloudflared 2026.7.2 stderr. The hostname is only ever available by
@@ -330,6 +337,106 @@ func TestTunnelRuntimeAdvertisesOnceRegistered(t *testing.T) {
 	if !got.Ready || got.Hostname != "abc.trycloudflare.com" {
 		t.Fatalf("got %+v", got)
 	}
+}
+
+func TestTunnelRuntimeTracksLiveConnectorHealth(t *testing.T) {
+	r := &TunnelRuntime{}
+	r.Started()
+	r.RequireHealth()
+	r.Line(`INF |  https://abc.trycloudflare.com  |`)
+	r.Line(`INF Registered tunnel connection connIndex=0`)
+	r.Settled()
+	if r.Endpoint() != nil || r.Snapshot().Ready {
+		t.Fatal("advertised a tunnel before a live health check")
+	}
+	r.SetHealth(true)
+	if r.Endpoint() == nil || !r.Snapshot().Ready {
+		t.Fatal("healthy connector was not advertised")
+	}
+	r.SetHealth(false)
+	if r.Endpoint() != nil || r.Snapshot().Ready || r.Snapshot().LastError == "" {
+		t.Fatal("disconnected connector remained advertised")
+	}
+	r.SetHealth(true)
+	if endpoint := r.Endpoint(); endpoint == nil || endpoint.Hostname != "abc.trycloudflare.com" {
+		t.Fatalf("reconnected tunnel did not retain its hostname: %+v", endpoint)
+	}
+}
+
+func TestCloudflaredReadyChecksLiveConnections(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+		want   bool
+	}{
+		{name: "connected", status: http.StatusOK, body: `{"readyConnections":1}`, want: true},
+		{name: "zero connections", status: http.StatusOK, body: `{"readyConnections":0}`},
+		{name: "unavailable", status: http.StatusServiceUnavailable, body: `{"readyConnections":0}`},
+		{name: "malformed", status: http.StatusOK, body: `invalid`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/ready" {
+					t.Errorf("unexpected path: %s", r.URL.Path)
+				}
+				w.WriteHeader(tc.status)
+				_, _ = fmt.Fprint(w, tc.body)
+			}))
+			defer server.Close()
+			_, portText, err := net.SplitHostPort(server.Listener.Addr().String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			port, err := strconv.Atoi(portText)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := cloudflaredReady(context.Background(), port); got != tc.want {
+				t.Fatalf("ready = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestTunnelHealthMonitorWithdrawsAndRestoresEndpoint(t *testing.T) {
+	runtime := &TunnelRuntime{}
+	runtime.Started()
+	runtime.RequireHealth()
+	runtime.Line(`INF |  https://abc.trycloudflare.com  |`)
+	runtime.Line(`INF Registered tunnel connection connIndex=0`)
+	runtime.Settled()
+	results := make(chan bool, 4)
+	runner := &TunnelRunner{Runtime: runtime, HealthInterval: time.Millisecond, HealthProbe: func(ctx context.Context, _ int) bool {
+		select {
+		case result := <-results:
+			return result
+		case <-ctx.Done():
+			return false
+		}
+	}}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); runner.monitorHealth(ctx, 0) }()
+	defer func() { cancel(); <-done }()
+	waitFor := func(want bool) {
+		t.Helper()
+		deadline := time.Now().Add(time.Second)
+		for time.Now().Before(deadline) {
+			if runtime.Snapshot().Ready == want {
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+		t.Fatalf("ready did not become %t", want)
+	}
+	results <- true
+	waitFor(true)
+	results <- false
+	results <- false
+	waitFor(false)
+	results <- true
+	waitFor(true)
 }
 
 // The endpoint must disappear the moment the connector dies, or the phone keeps

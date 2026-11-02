@@ -102,12 +102,18 @@ func openCodexDeviceFileNoFollow(path string) (*os.File, error) {
 }
 
 func validateCodexDirectory(path string, requirePrivate bool) error {
-	handle, info, ownerCurrent, _, aclSafe, err := openCodexWindowsPath(path, true, requirePrivate)
+	handle, info, ownerCurrent, ownerTrusted, aclSafe, err := openCodexWindowsPath(path, true, requirePrivate)
 	if err != nil {
 		return errors.New("codex directory is unsafe")
 	}
 	_ = windows.CloseHandle(handle)
-	if !codexWindowsPathMetadataIsSafe(codexWindowsMetadata(info, ownerCurrent, aclSafe), true, false) {
+	ownerSafe := ownerCurrent
+	if !requirePrivate {
+		// The device Codex home can be owned by Administrators on an elevated
+		// Windows install. Its credential has a separate strict ACL check.
+		ownerSafe = ownerTrusted
+	}
+	if !codexWindowsPathMetadataIsSafe(codexWindowsMetadata(info, ownerSafe, aclSafe), true, false) {
 		return errors.New("codex directory owner or ACL is unsafe")
 	}
 	return validateCodexDirectoryAncestors(path)
@@ -367,8 +373,56 @@ func codexWindowsLocalSandboxSID() (*windows.SID, error) {
 	return sid, nil
 }
 
+// An elevated Windows process can create its own files with the built-in
+// Administrators group as owner. Reassign only that trusted owner to the
+// current user, using a no-follow handle and checking the file identity again.
+func claimAdministratorsOwnedCodexPath(path string, directory bool, original windows.ByHandleFileInformation) error {
+	handle, opened, ownerCurrent, _, _, err := openCodexWindowsPathWithAccess(
+		path, directory, windows.WRITE_OWNER|windows.READ_CONTROL, false,
+	)
+	if err != nil {
+		return err
+	}
+	defer windows.CloseHandle(handle)
+	if !codexWindowsSameStableIdentity(codexWindowsMetadata(original, true, true), codexWindowsMetadata(opened, true, true)) {
+		return errors.New("codex private path changed before owner repair")
+	}
+	if ownerCurrent {
+		return nil
+	}
+	sd, err := windows.GetSecurityInfo(handle, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
+	if err != nil || sd == nil {
+		return errors.New("codex private path owner is unavailable")
+	}
+	owner, _, err := sd.Owner()
+	if err != nil || owner == nil {
+		return errors.New("codex private path owner is unavailable")
+	}
+	administrators, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+	if err != nil || !owner.Equals(administrators) {
+		return errors.New("codex private path owner is unsafe")
+	}
+	token, err := windows.OpenCurrentProcessToken()
+	if err != nil {
+		return err
+	}
+	defer token.Close()
+	user, err := token.GetTokenUser()
+	if err != nil {
+		return err
+	}
+	if err := windows.SetSecurityInfo(handle, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION, user.User.Sid, nil, nil, nil); err != nil {
+		return err
+	}
+	current, _, _, err := codexWindowsHandleSecurity(handle, false)
+	if err != nil || !current {
+		return errors.New("codex private path owner could not be verified")
+	}
+	return nil
+}
+
 func protectCodexPrivateDirectory(path string) error {
-	handle, _, ownerCurrent, _, _, err := openCodexWindowsPathWithAccess(
+	handle, info, ownerCurrent, _, _, err := openCodexWindowsPathWithAccess(
 		path,
 		true,
 		windows.WRITE_DAC|windows.READ_CONTROL,
@@ -379,7 +433,9 @@ func protectCodexPrivateDirectory(path string) error {
 	}
 	defer windows.CloseHandle(handle)
 	if !ownerCurrent {
-		return errors.New("codex private directory owner is unsafe")
+		if err := claimAdministratorsOwnedCodexPath(path, true, info); err != nil {
+			return err
+		}
 	}
 	return setCodexWindowsPrivateDACL(handle, true)
 }
@@ -402,11 +458,16 @@ func protectCodexPrivateFile(path string, file *os.File) error {
 		return err
 	}
 	defer windows.CloseHandle(handle)
-	if !ownerCurrent || !codexWindowsSameStableIdentity(
+	if !codexWindowsSameStableIdentity(
 		codexWindowsMetadata(original, true, true),
 		codexWindowsMetadata(opened, true, true),
 	) {
 		return errors.New("codex private file changed before ACL protection")
+	}
+	if !ownerCurrent {
+		if err := claimAdministratorsOwnedCodexPath(path, false, opened); err != nil {
+			return err
+		}
 	}
 	return setCodexWindowsPrivateDACL(handle, false)
 }

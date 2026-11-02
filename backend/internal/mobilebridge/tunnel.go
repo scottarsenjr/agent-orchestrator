@@ -199,7 +199,7 @@ func LocalCloudflaredLookup(dataDir string) CloudflaredLookup {
 	return CloudflaredLookup{
 		EnvPath:     os.Getenv("AO_CLOUDFLARED_PATH"),
 		ManagedPath: ManagedCloudflaredPath(dataDir),
-		LookPath:    exec.LookPath,
+		LookPath:    lookPathCloudflared,
 		Exists: func(p string) bool {
 			fi, err := os.Stat(p)
 			return err == nil && !fi.IsDir()
@@ -214,6 +214,25 @@ func LocalCloudflaredLookup(dataDir string) CloudflaredLookup {
 			return ParseCloudflaredVersion(string(out))
 		},
 	}
+}
+
+// The Windows MSI installs under Program Files, but an already-running daemon
+// does not receive changes to PATH made by the installer. Probe its standard
+// installation directories as well, while retaining the normal version check.
+func lookPathCloudflared(name string) (string, error) {
+	resolved, err := exec.LookPath(name)
+	if err == nil || runtime.GOOS != "windows" || name != "cloudflared" {
+		return resolved, err
+	}
+	for _, variable := range []string{"ProgramFiles(x86)", "ProgramFiles"} {
+		if root := os.Getenv(variable); root != "" {
+			candidate := filepath.Join(root, "cloudflared", "cloudflared.exe")
+			if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
+				return candidate, nil
+			}
+		}
+	}
+	return "", err
 }
 
 // cloudflaredVersionTimeout bounds the `--version` probe. A hung binary must
@@ -305,6 +324,10 @@ type TunnelRuntime struct {
 	mu      sync.Mutex
 	log     TunnelLog
 	running bool
+	// A live connector can lose every edge connection while its process and
+	// earlier registration log remain. Only a current health probe confirms it.
+	requireHealth bool
+	healthy       bool
 	// settled records that this run's hostname has had time to appear in DNS.
 	// A registered connection is not enough: measured against real cloudflared,
 	// a brand-new quick tunnel hostname takes roughly twenty more seconds to
@@ -323,8 +346,36 @@ func (r *TunnelRuntime) Started() {
 	defer r.mu.Unlock()
 	r.log = TunnelLog{}
 	r.running = true
+	r.requireHealth = false
+	r.healthy = false
 	r.settled = false
 	r.lastErr = ""
+}
+
+// RequireHealth holds the endpoint back until the live connector reports a
+// healthy connection. Lightweight runtime fakes may continue to use log-only
+// readiness; the real runner enables this for every connector process.
+func (r *TunnelRuntime) RequireHealth() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.requireHealth = true
+	r.healthy = false
+}
+
+// SetHealth withdraws a disconnected endpoint and restores the same hostname
+// if cloudflared reconnects, without rotating an already-paired tunnel.
+func (r *TunnelRuntime) SetHealth(healthy bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.running {
+		return
+	}
+	r.healthy = healthy
+	if healthy {
+		r.lastErr = ""
+	} else {
+		r.lastErr = "Cloudflare connection unavailable; reconnecting"
+	}
 }
 
 // Line feeds one line of connector output.
@@ -349,7 +400,7 @@ func (r *TunnelRuntime) Exited(err error) {
 func (r *TunnelRuntime) Endpoint() *TunnelEndpoint {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if !r.running || !r.log.Ready() || !r.settled {
+	if !r.running || !r.log.Ready() || !r.settled || (r.requireHealth && !r.healthy) {
 		return nil
 	}
 	return &TunnelEndpoint{Ready: true, Hostname: hostnameOf(r.log.URL)}
@@ -386,7 +437,7 @@ func (r *TunnelRuntime) Snapshot() TunnelStatus {
 	defer r.mu.Unlock()
 	return TunnelStatus{
 		Running:   r.running,
-		Ready:     r.running && r.log.Ready() && r.settled,
+		Ready:     r.running && r.log.Ready() && r.settled && (!r.requireHealth || r.healthy),
 		Hostname:  hostnameOf(r.log.URL),
 		Location:  r.log.Location,
 		LastError: r.lastErr,

@@ -56,6 +56,24 @@ func TestCloudflaredVersionHasNoConsole(t *testing.T) {
 	assertNoCloudflaredConsole(t, report)
 }
 
+func TestCloudflaredFindsWindowsMSIOutsidePATH(t *testing.T) {
+	root := t.TempDir()
+	bin := filepath.Join(root, "cloudflared", "cloudflared.exe")
+	if err := os.MkdirAll(filepath.Dir(bin), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("test"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", "")
+	t.Setenv("ProgramFiles(x86)", root)
+	t.Setenv("ProgramFiles", "")
+	got, err := LocalCloudflaredLookup(t.TempDir()).LookPath("cloudflared")
+	if err != nil || got != bin {
+		t.Fatalf("MSI lookup = %q, %v; want %q", got, err, bin)
+	}
+}
+
 func TestCloudflaredRunnerHasNoConsoleAndStops(t *testing.T) {
 	if runInDetachedProcess(t) {
 		return
@@ -70,6 +88,7 @@ func TestCloudflaredRunnerHasNoConsoleAndStops(t *testing.T) {
 	runner := &TunnelRunner{
 		Binary: binary, LocalPort: 3002, PIDPath: filepath.Join(dir, "tunnel.pid"),
 		Runtime: &TunnelRuntime{}, SettleDelay: time.Millisecond,
+		HealthProbe: func(context.Context, int) bool { return true }, HealthInterval: time.Millisecond,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	done := make(chan error, 1)
