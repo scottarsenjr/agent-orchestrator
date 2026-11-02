@@ -155,7 +155,7 @@ func (c *MemoryController) graph(w http.ResponseWriter, r *http.Request) {
 		writeError(503, "Workspace is unavailable.")
 		return
 	}
-	args := []string{"-X", "utf8", "-I", "-m", "jarvis_core.cli", "memory", "graph", "--workspace", workspace, "--json", "--limit", "200"}
+	args := []string{"-X", "utf8", "-I", "-m", "jarvis_core.cli", "memory", "graph", "--workspace", workspace, "--json", "--limit", "500"}
 	for _, entry := range []struct {
 		key, flag string
 		allowed   map[string]bool

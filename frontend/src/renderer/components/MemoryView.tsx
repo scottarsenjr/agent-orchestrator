@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Maximize2, Minus, Plus } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { apiClient, getApiBaseUrl } from "../lib/api-client";
@@ -7,6 +6,7 @@ import { hidesShellTopbar } from "../lib/platform";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { MemoryGraph } from "./MemoryGraph";
 
 type Node = { id: string; type: string; label: string; content: string; source_id: string | null; date: string | null; status: string | null; provenance: Record<string, unknown> | null };
 type Graph = { visibility_token: string; nodes: Node[]; edges: { id: string; source: string; target: string; type: string }[]; counts: { visible: number; returned: number } | null; truncated: boolean; empty_reason: string | null; context: { branch: string | null; commit: string | null; dirty: boolean }; errors: unknown[] };
@@ -33,12 +33,6 @@ export function MemoryView() {
 	const [selected, setSelected] = useState<string | null>(null);
 	const [state, setState] = useState<"loading" | "ready" | "error">("loading");
 	const [error, setError] = useState("");
-	const [view, setView] = useState({ x: 0, y: 0, scale: 1 });
-	const [canvasWidth, setCanvasWidth] = useState(600);
-	const [layoutWidth, setLayoutWidth] = useState(800);
-	const layoutRef = useRef<HTMLDivElement>(null);
-	const canvasRef = useRef<HTMLDivElement>(null);
-	const drag = useRef<{ x: number; y: number; originX: number; originY: number } | null>(null);
 	const current = workspaces.find((w) => w.id === project);
 	const sessions = current?.sessions ?? [];
 	const valid = Boolean(project && (scope === "project" || (session && session !== "none")));
@@ -84,20 +78,8 @@ export function MemoryView() {
 	const detail = nodes.find((node) => node.id === selected);
 	const detailLinks = graph?.edges.filter((edge) => edge.source === selected || edge.target === selected) ?? [];
 	const nodeLabels = new Map(nodes.map((node) => [node.id, node.label]));
-	useEffect(() => {
-		const layout = layoutRef.current, canvas = canvasRef.current;
-		if (!layout || !canvas) return;
-		const update = () => { setLayoutWidth(layout.clientWidth); setCanvasWidth(Math.max(180, canvas.clientWidth)); };
-		update(); if (typeof ResizeObserver === "undefined") return;
-		const observer = new ResizeObserver(update); observer.observe(layout); observer.observe(canvas);
-		return () => observer.disconnect();
-	}, [Boolean(graph), Boolean(detail)]);
-	const narrow = layoutWidth < 700;
-	const columns = Math.max(1, Math.min(4, Math.floor(canvasWidth / 180)));
-	const positions = useMemo(() => new Map(nodes.map((node, i) => [node.id, { x: (canvasWidth / columns) * ((i % columns) + .5), y: 55 + Math.floor(i / columns) * 85 }])), [nodes, canvasWidth, columns]);
-	const height = Math.max(300, Math.ceil(nodes.length / columns) * 85 + 40);
 	const statusOptions = [{ value: "proposed", label: t("memory.proposed") }, { value: "implemented_in_branch", label: t("memory.implementedInBranch") }, { value: "accepted", label: t("memory.accepted") }, { value: "legacy", label: t("memory.legacy") }];
-	function clear() { setSelected(null); setGraph(null); setView({ x: 0, y: 0, scale: 1 }); }
+	function clear() { setSelected(null); setGraph(null); }
 	return <div className="flex min-h-0 flex-1 flex-col bg-background">
 		<header className="workspace-topbar-container center-panel-titlebar flex h-toolbar shrink-0 items-center border-b border-border-strong"><h1 className={hidesShellTopbar() ? "text-sm font-medium" : "sr-only"}>{t("memory.title")}</h1></header>
 		<div className="flex flex-wrap items-end gap-3 border-b border-border p-4">
@@ -110,13 +92,11 @@ export function MemoryView() {
 		</div>
 		<p className="px-4 pt-2 text-xs text-muted-foreground">{t(scope === "project" ? "memory.projectWorkspace" : "memory.sessionScopeNote")}</p>
 		{catalog.isError ? <p role="alert" className="p-4 text-sm">{t("memory.loadProjectsError")}</p> : catalog.isLoading ? <p role="status" className="p-4 text-sm">{t("memory.loadingProjects")}</p> : !valid || session === "none" ? <p className="p-4 text-sm text-muted-foreground">{t("memory.selectProjectSession")}</p> : state === "loading" ? <p role="status" className="p-4 text-sm">{t("memory.loadingMemory")}</p> : state === "error" ? <p role="alert" className="p-4 text-sm">{error}</p> : graph && nodes.length === 0 ? <div className="p-4 text-sm text-muted-foreground"><p>{t(graph.empty_reason === "no_matches" ? "memory.noMatches" : "memory.empty")}</p><p className="mt-2 text-xs">{t("memory.zeroNodes")} · {graph.context.branch || t("memory.noBranch")}{graph.context.dirty ? ` · ${t("memory.uncommittedChanges")}` : ""}</p></div> : graph && <>
-			<div className="flex flex-wrap items-center gap-2 px-4 py-2 text-xs text-muted-foreground"><span>{t("memory.nodeCount", { returned: graph.counts?.returned ?? nodes.length, visible: graph.counts?.visible ?? nodes.length })}</span>{graph.truncated && <span>{t("memory.truncated")}</span>}<span>{graph.context.branch || t("memory.noBranch")}{graph.context.dirty ? ` · ${t("memory.uncommittedChanges")}` : ""}</span><div className="ml-auto flex gap-1"><Button variant="ghost" size="icon-sm" aria-label={t("memory.zoomOut")} onClick={() => setView((v) => ({ ...v, scale: Math.max(.4, v.scale / 1.2) }))}><Minus /></Button><Button variant="ghost" size="icon-sm" aria-label={t("memory.zoomIn")} onClick={() => setView((v) => ({ ...v, scale: Math.min(3, v.scale * 1.2) }))}><Plus /></Button><Button variant="ghost" size="icon-sm" aria-label={t("memory.fitGraph")} onClick={() => setView({ x: 0, y: 0, scale: 1 })}><Maximize2 /></Button></div></div>
-			<div ref={layoutRef} className={`flex min-h-0 flex-1 ${narrow ? "flex-col overflow-auto" : "flex-row"}`}>
-				<div ref={canvasRef} className="min-h-64 min-w-0 flex-1 overflow-auto" aria-label={t("memory.graph")}><svg className="w-full touch-none" style={{ height }} viewBox={`${view.x} ${view.y} ${canvasWidth / view.scale} ${height / view.scale}`} tabIndex={0} aria-label={t("memory.graphCanvas")} onKeyDown={(e) => { const step = 40 / view.scale; if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) { e.preventDefault(); setView((v) => ({ ...v, x: v.x + (e.key === "ArrowRight" ? step : e.key === "ArrowLeft" ? -step : 0), y: v.y + (e.key === "ArrowDown" ? step : e.key === "ArrowUp" ? -step : 0) })); } }} onPointerDown={(e) => { if (e.target === e.currentTarget) { drag.current = { x: e.clientX, y: e.clientY, originX: view.x, originY: view.y }; e.currentTarget.setPointerCapture(e.pointerId); } }} onPointerMove={(e) => { if (drag.current) setView((v) => ({ ...v, x: drag.current!.originX - (e.clientX - drag.current!.x) / v.scale, y: drag.current!.originY - (e.clientY - drag.current!.y) / v.scale })); }} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}>
-					{graph.edges.map((edge) => { const a = positions.get(edge.source), b = positions.get(edge.target); return a && b ? <line key={edge.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="var(--color-text-muted)" /> : null; })}
-					{nodes.map((node) => { const p = positions.get(node.id)!; return <g key={node.id} role="button" tabIndex={0} className="focus-visible:outline-none focus-visible:[&>rect]:stroke-[var(--ring)]" aria-label={`${node.type}: ${node.label}`} onClick={() => setSelected(node.id)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelected(node.id); } }}><rect x={p.x - 78} y={p.y - 23} width="156" height="46" rx="6" fill={selected === node.id ? "var(--color-bg-tertiary)" : "var(--color-bg-secondary)"} stroke="var(--color-border-strong)" /><text x={p.x} y={p.y - 3} textAnchor="middle" fill="var(--color-text-primary)" fontSize="12">{node.label.length > 22 ? `${node.label.slice(0, 21)}…` : node.label}</text><text x={p.x} y={p.y + 13} textAnchor="middle" fill="var(--color-text-muted)" fontSize="10">{node.type}</text></g>; })}
-				</svg><ul className="sr-only" aria-label={t("memory.storedLinks")}>{graph.edges.map((edge) => <li key={edge.id}>{nodeLabels.get(edge.source) ?? edge.source} {t("memory.to")} {nodeLabels.get(edge.target) ?? edge.target} — {edge.type.replaceAll("_", " ")}</li>)}</ul></div>
-				{detail && <aside className={`${narrow ? "w-full border-t" : "w-72 border-l"} max-w-full overflow-auto border-border p-4`} aria-label={t("memory.details")}>
+			<div className="flex flex-wrap items-center gap-2 px-4 py-2 text-xs text-muted-foreground"><span>{t("memory.nodeCount", { returned: graph.counts?.returned ?? nodes.length, visible: graph.counts?.visible ?? nodes.length })}</span>{graph.truncated && <span>{t("memory.truncated")}</span>}<span>{graph.context.branch || t("memory.noBranch")}{graph.context.dirty ? ` · ${t("memory.uncommittedChanges")}` : ""}</span></div>
+			<div className="flex min-h-0 flex-1 flex-row">
+				<MemoryGraph key={project} project={project} nodes={nodes} edges={graph.edges} selected={selected} onSelect={setSelected} resetKey={key} />
+				<ul className="sr-only" aria-label={t("memory.storedLinks")}>{graph.edges.map((edge) => <li key={edge.id}>{nodeLabels.get(edge.source) ?? edge.source} {t("memory.to")} {nodeLabels.get(edge.target) ?? edge.target} — {edge.type.replaceAll("_", " ")}</li>)}</ul>
+				{detail && <aside className="w-72 max-w-full overflow-auto border-l border-border p-4" aria-label={t("memory.details")}>
 					<div className="flex items-start justify-between gap-2"><h2 className="text-sm font-medium">{detail.label}</h2><Button variant="ghost" size="sm" onClick={() => setSelected(null)}>{t("memory.closeDetails")}</Button></div>
 					<p className="mt-2 whitespace-pre-wrap text-sm">{detail.content}</p>
 					<dl className="mt-4 space-y-2 text-xs"><div><dt className="text-muted-foreground">{t("memory.type")}</dt><dd>{detail.type}</dd></div><div><dt className="text-muted-foreground">{t("memory.status")}</dt><dd>{detail.status ? (statusOptions.find((option) => option.value === detail.status)?.label ?? detail.status.replaceAll("_", " ")) : "—"}</dd></div><div><dt className="text-muted-foreground">{t("memory.date")}</dt><dd>{detail.date || "—"}</dd></div><div><dt className="text-muted-foreground">{t("memory.source")}</dt><dd className="break-all">{detail.source_id || "—"}</dd></div>{Object.entries(detail.provenance ?? {}).map(([k, v]) => <div key={k}><dt className="text-muted-foreground">{k.replaceAll("_", " ")}</dt><dd className="break-all">{String(v)}</dd></div>)}</dl>
