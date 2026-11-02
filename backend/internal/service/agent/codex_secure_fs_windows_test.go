@@ -225,6 +225,14 @@ func TestOpenCodexDeviceFileRepairsLegacyUnmappedSID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Elevated Windows accounts may create files owned by Administrators.
+	// This case specifically exercises repair of a current-user-owned file.
+	ownerHandle := openWindowsTestFile(t, path, windows.WRITE_OWNER|windows.READ_CONTROL)
+	err = windows.SetSecurityInfo(ownerHandle, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION, user, nil, nil, nil)
+	_ = windows.CloseHandle(ownerHandle)
+	if err != nil {
+		t.Fatalf("setting current user as test credential owner: %v", err)
+	}
 	setWindowsTestDACL(t, path, []windows.EXPLICIT_ACCESS{
 		windowsTestACE(user, windows.GENERIC_ALL, windows.TRUSTEE_IS_USER),
 		windowsTestACE(stale, windows.ACCESS_MASK(codexWindowsLegacyStaleSIDMask), windows.TRUSTEE_IS_UNKNOWN),
